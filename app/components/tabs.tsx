@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { ArenaProgress } from "../types";
 import { ImageGrid } from "./image-grid";
 import { MatchHistory } from "./match-history";
 import { ImageTile } from "../lib/images";
@@ -13,13 +12,6 @@ interface TabsProps {
 export function Tabs({ images }: TabsProps) {
 	const [activeTab, setActiveTab] = useState("tracker");
 	const [searchQuery, setSearchQuery] = useState("");
-	const [progress, setProgress] = useState<ArenaProgress>(() => {
-		if (typeof window !== "undefined") {
-			const stored = localStorage.getItem("arena-god-progress");
-			return stored ? JSON.parse(stored) : { firstPlaceChampions: [] };
-		}
-		return { firstPlaceChampions: [] };
-	});
 
 	const filteredImages = images.filter((image) =>
 		image.name.toLowerCase().includes(searchQuery.toLowerCase())

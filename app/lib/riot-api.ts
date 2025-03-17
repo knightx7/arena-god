@@ -54,7 +54,7 @@ export async function getRiotAccount(gameName: string, tagLine: string) {
 	}
 }
 
-export async function getMatchIds(puuid: string, count: number = 40) {
+export async function getMatchIds(puuid: string) {
 	try {
 		const response = await fetch(
 			`/api/riot?endpoint=matches&puuid=${encodeURIComponent(puuid)}`

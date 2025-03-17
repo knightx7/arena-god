@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { RiotId, MatchResult } from "../types";
+import { MatchResult } from "../types";
 import {
 	getRiotId,
 	setRiotId,
@@ -32,7 +32,6 @@ const PLACEMENT_COLORS = {
 } as const;
 
 export function MatchHistory() {
-	const [riotId, setRiotIdState] = useState<RiotId | null>(null);
 	const [gameName, setGameName] = useState("");
 	const [tagLine, setTagLine] = useState("");
 	const [matchHistory, setMatchHistoryState] = useState<MatchResult[]>([]);
@@ -42,7 +41,6 @@ export function MatchHistory() {
 	useEffect(() => {
 		const storedRiotId = getRiotId();
 		if (storedRiotId) {
-			setRiotIdState(storedRiotId);
 			setGameName(storedRiotId.gameName);
 			setTagLine(storedRiotId.tagLine);
 		}
@@ -78,7 +76,6 @@ export function MatchHistory() {
 				gameName: account.data.gameName,
 				tagLine: account.data.tagLine,
 			};
-			setRiotIdState(newRiotId);
 			setRiotId(newRiotId);
 
 			const matchIds = await getMatchIds(account.data.puuid);
@@ -153,10 +150,8 @@ export function MatchHistory() {
 				}
 			}
 
-			setMatchHistoryState(
-				newHistory.map(({ isNewMatch, ...rest }) => rest)
-			);
-			setMatchHistory(newHistory.map(({ isNewMatch, ...rest }) => rest));
+			setMatchHistoryState(newHistory);
+			setMatchHistory(newHistory);
 
 			// Check for first place finishes only in new matches
 			const newFirstPlaceChampions = newHistory
@@ -175,7 +170,8 @@ export function MatchHistory() {
 				};
 				setArenaProgress(newProgress);
 			}
-		} catch (err) {
+		} catch (error) {
+			console.error("Failed to update match history:", error);
 			setError("Failed to update match history");
 		} finally {
 			setIsLoading(false);
