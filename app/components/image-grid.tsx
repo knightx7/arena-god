@@ -157,6 +157,32 @@ export function ImageGrid({ images, displayImages = images }: ImageGridProps) {
 										<Circle className="w-5 h-5 text-gray-400" />
 									)}
 								</div>
+								<div className="absolute top-2 left-2 flex flex-col gap-1">
+									<a
+										href={`https://u.gg/lol/champions/arena/${image.name.toLowerCase()}-arena-build`}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="px-2 py-0.5 text-xs font-medium bg-blue-500/90 text-white rounded-full hover:bg-blue-600 transition-colors shadow-sm ring-1 ring-blue-600/50"
+									>
+										u.gg
+									</a>
+									<a
+										href={`https://blitz.gg/lol/champions/${image.name}/arena`}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="px-2 py-0.5 text-xs font-medium bg-red-500/90 text-white rounded-full hover:bg-red-600 transition-colors shadow-sm ring-1 ring-red-600/50"
+									>
+										blitz
+									</a>
+									<a
+										href={`https://www.metasrc.com/lol/arena/build/${image.name.toLowerCase()}`}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="px-2 py-0.5 text-xs font-medium bg-gray-500/90 text-white rounded-full hover:bg-gray-600 transition-colors shadow-sm ring-1 ring-gray-600/50"
+									>
+										metasrc
+									</a>
+								</div>
 							</button>
 							<span className="text-sm text-center font-medium">
 								{image.name}
