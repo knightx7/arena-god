@@ -1,26 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Image from "next/image";
-import { ArenaProgress, MatchResult, Region, REGIONS } from "../types";
-import {
-	getRiotId,
-	setRiotId,
-	getMatchHistory,
-	setMatchHistory,
-	getCachedMatch,
-	cacheMatch,
-	getArenaProgress,
-	setArenaProgress,
-	getRegion,
-	setRegion as setStoredRegion,
-} from "../lib/storage";
-import {
-	getRiotAccount,
-	getMatchIds,
-	getMatchInfo,
-	getPlayerMatchResult,
-} from "../lib/riot-api";
+import { MatchResult, Region, REGIONS } from "../types";
+import { setRegion as setStoredRegion } from "../lib/storage";
 
 const PLACEMENT_COLORS = {
 	1: "bg-yellow-500 dark:bg-yellow-600",
@@ -33,188 +15,38 @@ const PLACEMENT_COLORS = {
 	8: "bg-gray-400 dark:bg-gray-700",
 } as const;
 
-export function MatchHistory() {
-	const [gameName, setGameName] = useState("");
-	const [tagLine, setTagLine] = useState("");
-	const [region, setRegion] = useState<Region>("NA");
-	const [matchHistory, setMatchHistoryState] = useState<MatchResult[]>([]);
-	const [isLoading, setIsLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [fetchProgress, setFetchProgress] = useState<{
-		total: number;
-		fetched: number;
-	} | null>(null);
+interface MatchHistoryProps {
+	// Props from parent
+	gameName: string;
+	setGameName: (name: string) => void;
+	tagLine: string;
+	setTagLine: (tag: string) => void;
+	region: Region;
+	setRegion: (region: Region) => void;
+	matchHistory: MatchResult[];
+	isLoading: boolean;
+	error: string | null;
+	fetchProgress: { total: number; fetched: number } | null;
+	eta: string | null;
+	updateSummary: { firstPlaces: number } | null;
+	onUpdate: (gameName: string, tagLine: string, region: Region) => void;
+}
 
-	useEffect(() => {
-		const storedRiotId = getRiotId();
-		if (storedRiotId) {
-			setGameName(storedRiotId.gameName);
-			setTagLine(storedRiotId.tagLine);
-		}
-		const storedRegion = getRegion();
-		if (storedRegion) {
-			setRegion(storedRegion);
-		}
-		setMatchHistoryState(getMatchHistory());
-	}, []);
-
-	const handleUpdate = async () => {
-		if (!gameName || !tagLine) {
-			setError("Please enter both game name and tag line");
-			return;
-		}
-
-		setIsLoading(true);
-		setError(null);
-		setFetchProgress(null);
-
-		try {
-			// 1. Get Account PUUID
-			const account = await getRiotAccount(gameName, tagLine, region);
-			if ("error" in account && account.error) {
-				setError(
-					typeof account.error === "string"
-						? account.error
-						: account.error.status.message
-				);
-				setIsLoading(false);
-				return;
-			}
-			if (!account.data) {
-				setError("No account data received");
-				setIsLoading(false);
-				return;
-			}
-			setRiotId({
-				gameName: account.data.gameName,
-				tagLine: account.data.tagLine,
-			});
-
-			// 2. Fetch all match IDs from the last 2 years
-			const twoYearsAgo = new Date();
-			twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-			const startTime = Math.floor(twoYearsAgo.getTime() / 1000);
-
-			const allMatchIds: string[] = [];
-			let start = 0;
-			const count = 100;
-
-			while (true) {
-				const matchIdsResponse = await getMatchIds(
-					account.data.puuid,
-					region,
-					start,
-					count,
-					startTime
-				);
-				if ("error" in matchIdsResponse || !matchIdsResponse.data) {
-					setError("Failed to fetch a batch of match IDs.");
-					break; // Stop but continue with what we have
-				}
-				allMatchIds.push(...matchIdsResponse.data);
-				if (matchIdsResponse.data.length < count) {
-					break; // Last page
-				}
-				start += count;
-			}
-
-			const uniqueMatchIds = [...new Set(allMatchIds)];
-			setFetchProgress({
-				total: uniqueMatchIds.length,
-				fetched: 0,
-			});
-
-			// 3. Process matches in batches
-			const BATCH_SIZE = 10;
-			const BATCH_DELAY = 1200; // Riot rate limit: 100 requests per 2 minutes
-			const newHistory: (MatchResult & { isNewMatch: boolean })[] = [];
-
-			for (let i = 0; i < uniqueMatchIds.length; i += BATCH_SIZE) {
-				const batch = uniqueMatchIds.slice(i, i + BATCH_SIZE);
-				const batchPromises = batch.map(async (matchId) => {
-					const cachedMatch = getCachedMatch(matchId);
-					if (cachedMatch) {
-						return {
-							...getPlayerMatchResult(
-								cachedMatch,
-								account.data.puuid
-							),
-							matchId,
-							isNewMatch: false,
-						};
-					}
-					const matchInfo = await getMatchInfo(matchId, region);
-					if ("error" in matchInfo || !matchInfo.data) return null;
-					cacheMatch(matchId, matchInfo.data);
-					return {
-						...getPlayerMatchResult(
-							matchInfo.data,
-							account.data.puuid
-						),
-						matchId,
-						isNewMatch: true,
-					};
-				});
-
-				const batchResults = await Promise.all(batchPromises);
-				const validResults = batchResults.filter(
-					(r): r is MatchResult & { isNewMatch: boolean } =>
-						Boolean(r && r.champion && r.placement)
-				);
-				newHistory.push(...validResults);
-
-				setFetchProgress((prev) => ({
-					total: uniqueMatchIds.length,
-					fetched: prev ? prev.fetched + batch.length : batch.length,
-				}));
-
-				if (i + BATCH_SIZE < uniqueMatchIds.length) {
-					await new Promise((resolve) =>
-						setTimeout(resolve, BATCH_DELAY)
-					);
-				}
-			}
-
-			// 4. Update state and storage
-			const sortedHistory = newHistory.sort((a, b) =>
-				b.matchId.localeCompare(a.matchId)
-			);
-			setMatchHistoryState(sortedHistory);
-			setMatchHistory(sortedHistory);
-
-			const newMatches = newHistory.filter((result) => result.isNewMatch);
-			if (newMatches.length > 0) {
-				const currentProgress = getArenaProgress();
-				const played = newMatches.map((m) => m.champion);
-				const firstPlace = newMatches
-					.filter((m) => m.placement === 1)
-					.map((m) => m.champion);
-
-				const newProgress: ArenaProgress = {
-					playedChampions: [
-						...new Set([
-							...(currentProgress.playedChampions || []),
-							...played,
-						]),
-					],
-					firstPlaceChampions: [
-						...new Set([
-							...(currentProgress.firstPlaceChampions || []),
-							...firstPlace,
-						]),
-					],
-				};
-				setArenaProgress(newProgress);
-			}
-		} catch (error) {
-			console.error("Failed to update match history:", error);
-			setError("Failed to update match history");
-		} finally {
-			setIsLoading(false);
-			setFetchProgress(null);
-		}
-	};
-
+export function MatchHistory({
+	gameName,
+	setGameName,
+	tagLine,
+	setTagLine,
+	region,
+	setRegion,
+	matchHistory,
+	isLoading,
+	error,
+	fetchProgress,
+	eta,
+	updateSummary,
+	onUpdate,
+}: MatchHistoryProps) {
 	return (
 		<div className="space-y-6">
 			<div className="flex flex-col sm:flex-row gap-4 sm:items-end">
@@ -275,7 +107,7 @@ export function MatchHistory() {
 					</select>
 				</div>
 				<button
-					onClick={handleUpdate}
+					onClick={() => onUpdate(gameName, tagLine, region)}
 					disabled={isLoading}
 					className="h-[42px] px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
 				>
@@ -283,26 +115,49 @@ export function MatchHistory() {
 				</button>
 			</div>
 
-			{fetchProgress && (
+			{(fetchProgress || updateSummary) && (
 				<div className="text-center space-y-2 pt-4">
-					<p className="text-sm text-gray-600 dark:text-gray-400">
-						Fetching match data... This may take several minutes.
-					</p>
-					<div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-						<div
-							className="bg-blue-600 h-2.5 rounded-full"
-							style={{
-								width: `${
-									(fetchProgress.fetched /
-										fetchProgress.total) *
-									100
-								}%`,
-							}}
-						></div>
-					</div>
-					<p className="text-sm font-medium">
-						{`Processed ${fetchProgress.fetched} of ${fetchProgress.total} matches.`}
-					</p>
+					{fetchProgress && (
+						<>
+							<p className="text-sm text-gray-600 dark:text-gray-400">
+								Fetching match data... This may take several
+								minutes.
+							</p>
+							<div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+								<div
+									className="bg-blue-600 h-2.5 rounded-full"
+									style={{
+										width: `${
+											(fetchProgress.fetched /
+												fetchProgress.total) *
+											100
+										}%`,
+									}}
+								></div>
+							</div>
+							<p className="text-sm font-medium">
+								{`Processed ${fetchProgress.fetched} of ${fetchProgress.total} matches.`}
+							</p>
+							{eta && (
+								<p className="text-xs text-gray-500 dark:text-gray-400">
+									{eta}
+								</p>
+							)}
+						</>
+					)}
+					{updateSummary && updateSummary.firstPlaces > 0 && (
+						<p
+							className={`text-sm font-semibold ${
+								isLoading
+									? "text-yellow-500 animate-pulse"
+									: "text-gray-700 dark:text-gray-300"
+							}`}
+						>
+							{isLoading ? "Found" : "Update complete. Found"}{" "}
+							{updateSummary.firstPlaces} new 1st place finish
+							{updateSummary.firstPlaces > 1 ? "es" : ""}!
+						</p>
+					)}
 				</div>
 			)}
 

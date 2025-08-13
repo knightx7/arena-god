@@ -1,5 +1,34 @@
 import { z } from "zod";
 import { Region } from "../types";
+
+async function fetchWithRetry(
+	url: string,
+	maxRetries = 5,
+	initialDelay = 2000
+): Promise<Response> {
+	let attempt = 0;
+	while (attempt < maxRetries) {
+		const response = await fetch(url);
+		if (response.status !== 429) {
+			return response;
+		}
+
+		attempt++;
+		if (attempt >= maxRetries) {
+			console.error("Max retries reached. Returning last 429 response.");
+			return response;
+		}
+
+		const delay = initialDelay * Math.pow(2, attempt - 1);
+		console.log(
+			`Rate limited. Retrying in ${delay}ms... (Attempt ${attempt})`
+		);
+		await new Promise((resolve) => setTimeout(resolve, delay));
+	}
+	// This should be unreachable
+	throw new Error("fetchWithRetry exhausted retries unexpectedly.");
+}
+
 // Types
 export const RiotAccountSchema = z.object({
 	puuid: z.string(),
@@ -39,7 +68,7 @@ export async function getRiotAccount(
 	region: Region
 ) {
 	try {
-		const response = await fetch(
+		const response = await fetchWithRetry(
 			`/api/riot?endpoint=account&gameName=${encodeURIComponent(
 				gameName
 			)}&tagLine=${encodeURIComponent(tagLine)}&region=${region}`
@@ -63,7 +92,8 @@ export async function getMatchIds(
 	region: Region,
 	start: number,
 	count: number,
-	startTime?: number
+	startTime?: number,
+	endTime?: number
 ) {
 	try {
 		let url = `/api/riot?endpoint=matches&puuid=${encodeURIComponent(
@@ -72,7 +102,10 @@ export async function getMatchIds(
 		if (startTime) {
 			url += `&startTime=${startTime}`;
 		}
-		const response = await fetch(url);
+		if (endTime) {
+			url += `&endTime=${endTime}`;
+		}
+		const response = await fetchWithRetry(url);
 
 		if (!response.ok) {
 			throw new Error(`HTTP error! status: ${response.status}`);
@@ -88,7 +121,7 @@ export async function getMatchIds(
 
 export async function getMatchInfo(matchId: string, region: Region) {
 	try {
-		const response = await fetch(
+		const response = await fetchWithRetry(
 			`/api/riot?endpoint=match&matchId=${encodeURIComponent(
 				matchId
 			)}&region=${region}`
@@ -108,10 +141,10 @@ export async function getMatchInfo(matchId: string, region: Region) {
 
 // Helper function to get player's placement in a match
 export function getPlayerMatchResult(
-	matchInfo: MatchInfo,
+	participants: MatchParticipant[],
 	playerPuuid: string
 ) {
-	const player = matchInfo.info.participants.find(
+	const player = participants.find(
 		(p: MatchParticipant) => p.puuid === playerPuuid
 	);
 

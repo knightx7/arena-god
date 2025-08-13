@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
 	const start = searchParams.get("start");
 	const count = searchParams.get("count");
 	const startTime = searchParams.get("startTime");
+	const endTime = searchParams.get("endTime");
 
 	if (!endpoint) {
 		return NextResponse.json(
@@ -61,6 +62,9 @@ export async function GET(request: NextRequest) {
 				url = `${RIOT_API_BASE}/lol/match/v5/matches/by-puuid/${puuid}/ids?queue=1700&start=${start}&count=${count}`;
 				if (startTime) {
 					url += `&startTime=${startTime}`;
+				}
+				if (endTime) {
+					url += `&endTime=${endTime}`;
 				}
 				break;
 
