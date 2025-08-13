@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { REGION_TO_CONTINENT, Region } from "../../types";
 
-const RIOT_TOKEN = process.env.RIOT_API_TOKEN;
-
-if (!RIOT_TOKEN) {
-	throw new Error("RIOT_API_TOKEN environment variable is not set");
-}
-
-const headers = {
-	"X-Riot-Token": RIOT_TOKEN,
-};
-
 export async function GET(request: NextRequest) {
+	const RIOT_TOKEN = process.env.RIOT_API_TOKEN;
+
+	if (!RIOT_TOKEN) {
+		return NextResponse.json(
+			{ error: "RIOT_API_TOKEN environment variable is not set" },
+			{ status: 500 }
+		);
+	}
+
+	const headers = {
+		"X-Riot-Token": RIOT_TOKEN,
+	};
+
 	const searchParams = request.nextUrl.searchParams;
 	const endpoint = searchParams.get("endpoint");
 	const gameName = searchParams.get("gameName");

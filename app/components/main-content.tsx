@@ -5,8 +5,9 @@ import { ArenaGodTracker } from "./arena-god-tracker";
 import { Tabs } from "./tabs";
 import { getArenaProgress } from "../lib/storage";
 import { ArenaProgress } from "../types";
+import { ImageTile } from "../lib/images";
 
-export function MainContent({ images }: { images: string[] }) {
+export function MainContent({ images }: { images: ImageTile[] }) {
 	const [progress, setProgress] = useState<ArenaProgress>({
 		firstPlaceChampions: [],
 		topFourChampions: [],

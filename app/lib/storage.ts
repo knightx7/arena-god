@@ -20,7 +20,7 @@ export function getRegion(): Region | null {
 	if (!stored) return null;
 	try {
 		return JSON.parse(stored) as Region;
-	} catch (e) {
+	} catch {
 		return null;
 	}
 }

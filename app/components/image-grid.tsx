@@ -19,6 +19,8 @@ export function ImageGrid({ images, displayImages = images }: ImageGridProps) {
 	const [mounted, setMounted] = useState(false);
 	const [progress, setProgress] = useState<ArenaProgress>({
 		firstPlaceChampions: [],
+		topFourChampions: [],
+		playedChampions: [],
 	});
 	const [sortMode, setSortMode] = useState<SortMode>("completion");
 	const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -32,15 +34,19 @@ export function ImageGrid({ images, displayImages = images }: ImageGridProps) {
 	const totalCount = images.length;
 
 	const toggleChampion = (championName: string) => {
-		const newProgress = {
-			firstPlaceChampions: progress.firstPlaceChampions.includes(
-				championName
-			)
-				? progress.firstPlaceChampions.filter(
-						(name) => name !== championName
-				  )
-				: [...progress.firstPlaceChampions, championName],
+		const isCompleted = progress.firstPlaceChampions.includes(championName);
+
+		const newFirstPlaceChampions = isCompleted
+			? progress.firstPlaceChampions.filter(
+					(name) => name !== championName
+			  )
+			: [...progress.firstPlaceChampions, championName];
+
+		const newProgress: ArenaProgress = {
+			...progress,
+			firstPlaceChampions: newFirstPlaceChampions,
 		};
+
 		setProgress(newProgress);
 		setArenaProgress(newProgress);
 	};
