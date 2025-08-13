@@ -44,6 +44,15 @@ export function MatchHistory() {
 		total: number;
 		fetched: number;
 	} | null>(null);
+	const [eta, setEta] = useState<string | null>(null);
+
+	const formatEta = (seconds: number) => {
+		if (seconds < 60) {
+			return "less than a minute remaining";
+		}
+		const minutes = Math.ceil(seconds / 60);
+		return `approx. ${minutes} minute${minutes > 1 ? "s" : ""} remaining`;
+	};
 
 	useEffect(() => {
 		const storedRiotId = getRiotId();
@@ -66,7 +75,7 @@ export function MatchHistory() {
 		setFetchProgress({ total: matchIds.length, fetched: 0 });
 
 		const BATCH_SIZE = 10;
-		const BATCH_DELAY = 1200;
+		const BATCH_DELAY = 12100; // 100 requests per 120 seconds = 1.2s/req. 10 reqs/batch = 12s/batch. Add buffer.
 		const processedMatches: (MatchResult & { isNewMatch: boolean })[] = [];
 
 		for (let i = 0; i < matchIds.length; i += BATCH_SIZE) {
@@ -113,6 +122,12 @@ export function MatchHistory() {
 				fetched: prev ? prev.fetched + batch.length : batch.length,
 			}));
 
+			const batchesRemaining = Math.ceil(
+				(matchIds.length - (i + batch.length)) / BATCH_SIZE
+			);
+			const secondsRemaining = batchesRemaining * (BATCH_DELAY / 1000);
+			setEta(formatEta(secondsRemaining));
+
 			if (i + BATCH_SIZE < matchIds.length) {
 				await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY));
 			}
@@ -157,6 +172,7 @@ export function MatchHistory() {
 		setIsLoading(true);
 		setError(null);
 		setFetchProgress(null);
+		setEta(null);
 
 		try {
 			// 1. Get Account PUUID
@@ -319,6 +335,7 @@ export function MatchHistory() {
 		} finally {
 			setIsLoading(false);
 			setFetchProgress(null);
+			setEta(null);
 		}
 	};
 
@@ -410,6 +427,11 @@ export function MatchHistory() {
 					<p className="text-sm font-medium">
 						{`Processed ${fetchProgress.fetched} of ${fetchProgress.total} matches.`}
 					</p>
+					{eta && (
+						<p className="text-xs text-gray-500 dark:text-gray-400">
+							{eta}
+						</p>
+					)}
 				</div>
 			)}
 
