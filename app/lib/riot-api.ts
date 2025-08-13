@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Region } from "../types";
+
 // Types
 export const RiotAccountSchema = z.object({
 	puuid: z.string(),
@@ -33,16 +33,12 @@ export type MatchParticipant = z.infer<typeof MatchParticipantSchema>;
 export type MatchInfo = z.infer<typeof MatchInfoSchema>;
 
 // Server Actions
-export async function getRiotAccount(
-	gameName: string,
-	tagLine: string,
-	region: Region
-) {
+export async function getRiotAccount(gameName: string, tagLine: string) {
 	try {
 		const response = await fetch(
 			`/api/riot?endpoint=account&gameName=${encodeURIComponent(
 				gameName
-			)}&tagLine=${encodeURIComponent(tagLine)}&region=${region}`
+			)}&tagLine=${encodeURIComponent(tagLine)}`
 		);
 
 		const data = await response.json();
@@ -58,21 +54,11 @@ export async function getRiotAccount(
 	}
 }
 
-export async function getMatchIds(
-	puuid: string,
-	region: Region,
-	start: number,
-	count: number,
-	startTime?: number
-) {
+export async function getMatchIds(puuid: string) {
 	try {
-		let url = `/api/riot?endpoint=matches&puuid=${encodeURIComponent(
-			puuid
-		)}&region=${region}&start=${start}&count=${count}`;
-		if (startTime) {
-			url += `&startTime=${startTime}`;
-		}
-		const response = await fetch(url);
+		const response = await fetch(
+			`/api/riot?endpoint=matches&puuid=${encodeURIComponent(puuid)}`
+		);
 
 		if (!response.ok) {
 			throw new Error(`HTTP error! status: ${response.status}`);
@@ -86,12 +72,10 @@ export async function getMatchIds(
 	}
 }
 
-export async function getMatchInfo(matchId: string, region: Region) {
+export async function getMatchInfo(matchId: string) {
 	try {
 		const response = await fetch(
-			`/api/riot?endpoint=match&matchId=${encodeURIComponent(
-				matchId
-			)}&region=${region}`
+			`/api/riot?endpoint=match&matchId=${encodeURIComponent(matchId)}`
 		);
 
 		if (!response.ok) {
