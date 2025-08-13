@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { ArenaProgress, MatchResult, Region, REGIONS } from "../types";
 import {
@@ -45,6 +45,10 @@ export function MatchHistory() {
 		fetched: number;
 	} | null>(null);
 	const [eta, setEta] = useState<string | null>(null);
+	const [liveStats, setLiveStats] = useState<{
+		firstPlaces: number;
+	} | null>(null);
+	const fetchControllerRef = useRef<AbortController | null>(null);
 
 	const formatEta = (seconds: number) => {
 		if (seconds < 60) {
@@ -65,20 +69,33 @@ export function MatchHistory() {
 			setRegion(storedRegion);
 		}
 		setMatchHistoryState(getMatchHistory());
+
+		return () => {
+			if (fetchControllerRef.current) {
+				fetchControllerRef.current.abort();
+			}
+		};
 	}, []);
 
 	const processMatches = async (
 		matchIds: string[],
 		puuid: string,
-		region: Region
+		region: Region,
+		signal: AbortSignal
 	) => {
 		setFetchProgress({ total: matchIds.length, fetched: 0 });
 
 		const BATCH_SIZE = 10;
 		const BATCH_DELAY = 1200;
-		const processedMatches: (MatchResult & { isNewMatch: boolean })[] = [];
+		const allProcessedMatches: (MatchResult & { isNewMatch: boolean })[] =
+			[];
+		setMatchHistoryState([]); // Clear visual history before starting
 
 		for (let i = 0; i < matchIds.length; i += BATCH_SIZE) {
+			if (signal.aborted) {
+				console.log("Fetch aborted by component unmount.");
+				break;
+			}
 			const batch = matchIds.slice(i, i + BATCH_SIZE);
 			const batchPromises = batch.map(async (matchId) => {
 				try {
@@ -90,7 +107,11 @@ export function MatchHistory() {
 							isNewMatch: false,
 						};
 					}
-					const matchInfo = await getMatchInfo(matchId, region);
+					const matchInfo = await getMatchInfo(
+						matchId,
+						region,
+						signal
+					);
 					if ("error" in matchInfo || !matchInfo.data) {
 						console.error(
 							`Failed to fetch match info for ${matchId}`
@@ -110,8 +131,13 @@ export function MatchHistory() {
 						};
 					}
 					return null;
-				} catch (error) {
-					console.error(`Error processing match ${matchId}:`, error);
+				} catch (error: unknown) {
+					if (error instanceof Error && error.name !== "AbortError") {
+						console.error(
+							`Error processing match ${matchId}:`,
+							error
+						);
+					}
 					return null;
 				}
 			});
@@ -121,7 +147,28 @@ export function MatchHistory() {
 				(r): r is MatchResult & { isNewMatch: boolean } =>
 					Boolean(r && r.champion && r.placement)
 			);
-			processedMatches.push(...validResults);
+
+			if (validResults.length > 0) {
+				allProcessedMatches.push(...validResults);
+				setMatchHistoryState((prev) =>
+					[...prev, ...validResults].sort((a, b) =>
+						b.matchId.localeCompare(a.matchId)
+					)
+				);
+				const newMatchesForProgress = validResults.filter(
+					(r) => r.isNewMatch
+				);
+				updateArenaProgress(newMatchesForProgress);
+
+				const firstsInBatch = validResults.filter(
+					(r) => r.placement === 1
+				).length;
+				if (firstsInBatch > 0) {
+					setLiveStats((prev) => ({
+						firstPlaces: (prev?.firstPlaces || 0) + firstsInBatch,
+					}));
+				}
+			}
 
 			setFetchProgress((prev) => ({
 				total: matchIds.length,
@@ -138,7 +185,7 @@ export function MatchHistory() {
 				await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY));
 			}
 		}
-		return processedMatches;
+		return allProcessedMatches;
 	};
 
 	const updateArenaProgress = (
@@ -179,10 +226,19 @@ export function MatchHistory() {
 		setError(null);
 		setFetchProgress(null);
 		setEta(null);
+		setLiveStats(null);
+
+		fetchControllerRef.current = new AbortController();
+		const signal = fetchControllerRef.current.signal;
 
 		try {
 			// 1. Get Account PUUID
-			const account = await getRiotAccount(gameName, tagLine, region);
+			const account = await getRiotAccount(
+				gameName,
+				tagLine,
+				region,
+				signal
+			);
 			if ("error" in account && account.error) {
 				setError(
 					typeof account.error === "string"
@@ -220,7 +276,8 @@ export function MatchHistory() {
 						puuid,
 						region,
 						start,
-						count
+						count,
+						signal
 					);
 					if ("error" in matchIdsResponse || !matchIdsResponse.data) {
 						setError("Failed to fetch new matches.");
@@ -248,7 +305,8 @@ export function MatchHistory() {
 					const processedNewMatches = await processMatches(
 						newMatchIds,
 						puuid,
-						region
+						region,
+						signal
 					);
 					const combinedHistory = [
 						...processedNewMatches,
@@ -257,13 +315,7 @@ export function MatchHistory() {
 					const sortedHistory = combinedHistory.sort((a, b) =>
 						b.matchId.localeCompare(a.matchId)
 					);
-					setMatchHistoryState(sortedHistory);
 					setMatchHistory(sortedHistory);
-
-					const newMatchesForProgress = processedNewMatches.filter(
-						(r) => r.isNewMatch
-					);
-					updateArenaProgress(newMatchesForProgress);
 				}
 			} else {
 				// Full 2-year history fetch
@@ -296,6 +348,7 @@ export function MatchHistory() {
 							region,
 							start,
 							count,
+							signal,
 							interval.startTime,
 							interval.endTime
 						);
@@ -322,26 +375,24 @@ export function MatchHistory() {
 				const newHistory = await processMatches(
 					uniqueMatchIds,
 					puuid,
-					region
+					region,
+					signal
 				);
 				const sortedHistory = newHistory.sort((a, b) =>
 					b.matchId.localeCompare(a.matchId)
 				);
-				setMatchHistoryState(sortedHistory);
 				setMatchHistory(sortedHistory);
-
-				const newMatchesForProgress = newHistory.filter(
-					(r) => r.isNewMatch
-				);
-				updateArenaProgress(newMatchesForProgress);
 			}
-		} catch (error) {
-			console.error("Failed to update match history:", error);
-			setError("Failed to update match history");
+		} catch (error: unknown) {
+			if (error instanceof Error && error.name !== "AbortError") {
+				console.error("Failed to update match history:", error);
+				setError("Failed to update match history");
+			}
 		} finally {
 			setIsLoading(false);
 			setFetchProgress(null);
 			setEta(null);
+			setLiveStats(null);
 		}
 	};
 
@@ -436,6 +487,13 @@ export function MatchHistory() {
 					{eta && (
 						<p className="text-xs text-gray-500 dark:text-gray-400">
 							{eta}
+						</p>
+					)}
+					{liveStats && liveStats.firstPlaces > 0 && (
+						<p className="text-sm text-yellow-500 font-semibold animate-pulse">
+							Found {liveStats.firstPlaces} new 1st place
+							finish
+							{liveStats.firstPlaces > 1 ? "es" : ""}!
 						</p>
 					)}
 				</div>

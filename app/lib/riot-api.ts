@@ -3,12 +3,16 @@ import { Region } from "../types";
 
 async function fetchWithRetry(
 	url: string,
+	signal: AbortSignal,
 	maxRetries = 5,
 	initialDelay = 2000
 ): Promise<Response> {
 	let attempt = 0;
 	while (attempt < maxRetries) {
-		const response = await fetch(url);
+		if (signal.aborted) {
+			throw new DOMException("Aborted", "AbortError");
+		}
+		const response = await fetch(url, { signal });
 		if (response.status !== 429) {
 			return response;
 		}
@@ -65,13 +69,15 @@ export type MatchInfo = z.infer<typeof MatchInfoSchema>;
 export async function getRiotAccount(
 	gameName: string,
 	tagLine: string,
-	region: Region
+	region: Region,
+	signal: AbortSignal
 ) {
 	try {
 		const response = await fetchWithRetry(
 			`/api/riot?endpoint=account&gameName=${encodeURIComponent(
 				gameName
-			)}&tagLine=${encodeURIComponent(tagLine)}&region=${region}`
+			)}&tagLine=${encodeURIComponent(tagLine)}&region=${region}`,
+			signal
 		);
 
 		const data = await response.json();
@@ -92,6 +98,7 @@ export async function getMatchIds(
 	region: Region,
 	start: number,
 	count: number,
+	signal: AbortSignal,
 	startTime?: number,
 	endTime?: number
 ) {
@@ -105,7 +112,7 @@ export async function getMatchIds(
 		if (endTime) {
 			url += `&endTime=${endTime}`;
 		}
-		const response = await fetchWithRetry(url);
+		const response = await fetchWithRetry(url, signal);
 
 		if (!response.ok) {
 			throw new Error(`HTTP error! status: ${response.status}`);
@@ -119,12 +126,17 @@ export async function getMatchIds(
 	}
 }
 
-export async function getMatchInfo(matchId: string, region: Region) {
+export async function getMatchInfo(
+	matchId: string,
+	region: Region,
+	signal: AbortSignal
+) {
 	try {
 		const response = await fetchWithRetry(
 			`/api/riot?endpoint=match&matchId=${encodeURIComponent(
 				matchId
-			)}&region=${region}`
+			)}&region=${region}`,
+			signal
 		);
 
 		if (!response.ok) {
