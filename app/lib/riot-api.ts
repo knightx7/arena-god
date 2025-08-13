@@ -1,5 +1,34 @@
 import { z } from "zod";
 import { Region } from "../types";
+
+async function fetchWithRetry(
+	url: string,
+	maxRetries = 5,
+	initialDelay = 2000
+): Promise<Response> {
+	let attempt = 0;
+	while (attempt < maxRetries) {
+		const response = await fetch(url);
+		if (response.status !== 429) {
+			return response;
+		}
+
+		attempt++;
+		if (attempt >= maxRetries) {
+			console.error("Max retries reached. Returning last 429 response.");
+			return response;
+		}
+
+		const delay = initialDelay * Math.pow(2, attempt - 1);
+		console.log(
+			`Rate limited. Retrying in ${delay}ms... (Attempt ${attempt})`
+		);
+		await new Promise((resolve) => setTimeout(resolve, delay));
+	}
+	// This should be unreachable
+	throw new Error("fetchWithRetry exhausted retries unexpectedly.");
+}
+
 // Types
 export const RiotAccountSchema = z.object({
 	puuid: z.string(),
@@ -39,7 +68,7 @@ export async function getRiotAccount(
 	region: Region
 ) {
 	try {
-		const response = await fetch(
+		const response = await fetchWithRetry(
 			`/api/riot?endpoint=account&gameName=${encodeURIComponent(
 				gameName
 			)}&tagLine=${encodeURIComponent(tagLine)}&region=${region}`
@@ -76,7 +105,7 @@ export async function getMatchIds(
 		if (endTime) {
 			url += `&endTime=${endTime}`;
 		}
-		const response = await fetch(url);
+		const response = await fetchWithRetry(url);
 
 		if (!response.ok) {
 			throw new Error(`HTTP error! status: ${response.status}`);
@@ -92,7 +121,7 @@ export async function getMatchIds(
 
 export async function getMatchInfo(matchId: string, region: Region) {
 	try {
-		const response = await fetch(
+		const response = await fetchWithRetry(
 			`/api/riot?endpoint=match&matchId=${encodeURIComponent(
 				matchId
 			)}&region=${region}`
