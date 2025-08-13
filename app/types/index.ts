@@ -47,3 +47,8 @@ export const REGION_TO_CONTINENT: Record<Region, string> = {
 	JP: "asia",
 	OCE: "sea",
 };
+
+export interface CachedMatchResult {
+	champion: string;
+	placement: number;
+}

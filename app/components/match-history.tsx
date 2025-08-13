@@ -75,17 +75,17 @@ export function MatchHistory() {
 		setFetchProgress({ total: matchIds.length, fetched: 0 });
 
 		const BATCH_SIZE = 10;
-		const BATCH_DELAY = 12100; // 100 requests per 120 seconds = 1.2s/req. 10 reqs/batch = 12s/batch. Add buffer.
+		const BATCH_DELAY = 1200;
 		const processedMatches: (MatchResult & { isNewMatch: boolean })[] = [];
 
 		for (let i = 0; i < matchIds.length; i += BATCH_SIZE) {
 			const batch = matchIds.slice(i, i + BATCH_SIZE);
 			const batchPromises = batch.map(async (matchId) => {
 				try {
-					const cachedParticipants = getCachedMatch(matchId);
-					if (cachedParticipants) {
+					const cachedResult = getCachedMatch(matchId);
+					if (cachedResult) {
 						return {
-							...getPlayerMatchResult(cachedParticipants, puuid),
+							...cachedResult,
 							matchId,
 							isNewMatch: false,
 						};
@@ -97,13 +97,19 @@ export function MatchHistory() {
 						);
 						return null;
 					}
-					const participants = matchInfo.data.info.participants;
-					cacheMatch(matchId, participants);
-					return {
-						...getPlayerMatchResult(participants, puuid),
-						matchId,
-						isNewMatch: true,
-					};
+					const playerResult = getPlayerMatchResult(
+						matchInfo.data.info.participants,
+						puuid
+					);
+					if (playerResult) {
+						cacheMatch(matchId, playerResult);
+						return {
+							...playerResult,
+							matchId,
+							isNewMatch: true,
+						};
+					}
+					return null;
 				} catch (error) {
 					console.error(`Error processing match ${matchId}:`, error);
 					return null;

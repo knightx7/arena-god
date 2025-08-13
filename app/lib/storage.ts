@@ -3,8 +3,8 @@ import {
 	MatchResult,
 	ArenaProgress,
 	Region,
+	CachedMatchResult,
 } from "../types";
-import { MatchParticipant } from "./riot-api";
 
 const STORAGE_KEYS = {
 	RIOT_ID: "arena-god-riot-id",
@@ -77,29 +77,28 @@ export function setArenaProgress(progress: ArenaProgress) {
 	localStorage.setItem(STORAGE_KEYS.ARENA_PROGRESS, JSON.stringify(progress));
 }
 
-export function getMatchCache(): Record<string, MatchParticipant[]> {
+export function getMatchCache(): Record<string, CachedMatchResult> {
 	if (typeof window === "undefined") return {};
 	const stored = localStorage.getItem(STORAGE_KEYS.MATCH_CACHE);
 	return stored ? JSON.parse(stored) : {};
 }
 
-export function setMatchCache(cache: Record<string, MatchParticipant[]>) {
+export function setMatchCache(cache: Record<string, CachedMatchResult>) {
 	if (typeof window === "undefined") return;
 	try {
 		localStorage.setItem(STORAGE_KEYS.MATCH_CACHE, JSON.stringify(cache));
 	} catch (error) {
 		console.error("Failed to set match cache:", error);
-		// Here we could implement a cache eviction strategy if we exceed quota
 	}
 }
 
-export function getCachedMatch(matchId: string): MatchParticipant[] | null {
+export function getCachedMatch(matchId: string): CachedMatchResult | null {
 	const cache = getMatchCache();
 	return cache[matchId] || null;
 }
 
-export function cacheMatch(matchId: string, participants: MatchParticipant[]) {
+export function cacheMatch(matchId: string, result: CachedMatchResult) {
 	const cache = getMatchCache();
-	cache[matchId] = participants;
+	cache[matchId] = result;
 	setMatchCache(cache);
 }
