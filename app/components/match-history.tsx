@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { ArenaProgress, MatchResult, Region, REGIONS } from "../types";
+import { MatchResult } from "../types";
 import {
 	getRiotId,
 	setRiotId,
@@ -12,8 +12,6 @@ import {
 	cacheMatch,
 	getArenaProgress,
 	setArenaProgress,
-	getRegion,
-	setRegion as setStoredRegion,
 } from "../lib/storage";
 import {
 	getRiotAccount,
@@ -36,24 +34,15 @@ const PLACEMENT_COLORS = {
 export function MatchHistory() {
 	const [gameName, setGameName] = useState("");
 	const [tagLine, setTagLine] = useState("");
-	const [region, setRegion] = useState<Region>("NA");
 	const [matchHistory, setMatchHistoryState] = useState<MatchResult[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [fetchProgress, setFetchProgress] = useState<{
-		total: number;
-		fetched: number;
-	} | null>(null);
 
 	useEffect(() => {
 		const storedRiotId = getRiotId();
 		if (storedRiotId) {
 			setGameName(storedRiotId.gameName);
 			setTagLine(storedRiotId.tagLine);
-		}
-		const storedRegion = getRegion();
-		if (storedRegion) {
-			setRegion(storedRegion);
 		}
 		setMatchHistoryState(getMatchHistory());
 	}, []);
@@ -66,141 +55,116 @@ export function MatchHistory() {
 
 		setIsLoading(true);
 		setError(null);
-		setFetchProgress(null);
 
 		try {
-			// 1. Get Account PUUID
-			const account = await getRiotAccount(gameName, tagLine, region);
+			const account = await getRiotAccount(gameName, tagLine);
 			if ("error" in account && account.error) {
 				setError(
 					typeof account.error === "string"
 						? account.error
 						: account.error.status.message
 				);
-				setIsLoading(false);
 				return;
 			}
+
 			if (!account.data) {
 				setError("No account data received");
-				setIsLoading(false);
 				return;
 			}
-			setRiotId({
+
+			const newRiotId = {
 				gameName: account.data.gameName,
 				tagLine: account.data.tagLine,
-			});
+			};
+			setRiotId(newRiotId);
 
-			// 2. Fetch all match IDs from the last 2 years
-			const twoYearsAgo = new Date();
-			twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-			const startTime = Math.floor(twoYearsAgo.getTime() / 1000);
-
-			const allMatchIds: string[] = [];
-			let start = 0;
-			const count = 100;
-
-			while (true) {
-				const matchIdsResponse = await getMatchIds(
-					account.data.puuid,
-					region,
-					start,
-					count,
-					startTime
-				);
-				if ("error" in matchIdsResponse || !matchIdsResponse.data) {
-					setError("Failed to fetch a batch of match IDs.");
-					break; // Stop but continue with what we have
-				}
-				allMatchIds.push(...matchIdsResponse.data);
-				if (matchIdsResponse.data.length < count) {
-					break; // Last page
-				}
-				start += count;
+			const matchIds = await getMatchIds(account.data.puuid);
+			if ("error" in matchIds) {
+				setError(matchIds.error || "Failed to fetch match IDs");
+				return;
 			}
 
-			const uniqueMatchIds = [...new Set(allMatchIds)];
-			setFetchProgress({
-				total: uniqueMatchIds.length,
-				fetched: 0,
-			});
+			if (!matchIds.data) {
+				setError("No match IDs received");
+				return;
+			}
 
-			// 3. Process matches in batches
-			const BATCH_SIZE = 10;
-			const BATCH_DELAY = 1200; // Riot rate limit: 100 requests per 2 minutes
+			// Process matches in batches to respect rate limits
+			const BATCH_SIZE = 15; // Reduced from 20 to be more conservative
+			const BATCH_DELAY = 1500; // Increased to 1.5 seconds between batches
 			const newHistory: (MatchResult & { isNewMatch: boolean })[] = [];
 
-			for (let i = 0; i < uniqueMatchIds.length; i += BATCH_SIZE) {
-				const batch = uniqueMatchIds.slice(i, i + BATCH_SIZE);
+			for (let i = 0; i < matchIds.data.length; i += BATCH_SIZE) {
+				const batch = matchIds.data.slice(i, i + BATCH_SIZE);
 				const batchPromises = batch.map(async (matchId) => {
+					// Check cache first
 					const cachedMatch = getCachedMatch(matchId);
 					if (cachedMatch) {
+						const result = getPlayerMatchResult(
+							cachedMatch,
+							account.data.puuid
+						);
+						if (result) {
+							return {
+								...result,
+								matchId,
+								isNewMatch: false,
+							};
+						}
+						return null;
+					}
+
+					// If not in cache, fetch from API
+					const matchInfo = await getMatchInfo(matchId);
+					if ("error" in matchInfo || !matchInfo.data) return null;
+
+					// Cache the match info
+					cacheMatch(matchId, matchInfo.data);
+
+					const result = getPlayerMatchResult(
+						matchInfo.data,
+						account.data.puuid
+					);
+					if (result) {
 						return {
-							...getPlayerMatchResult(
-								cachedMatch,
-								account.data.puuid
-							),
+							...result,
 							matchId,
-							isNewMatch: false,
+							isNewMatch: true,
 						};
 					}
-					const matchInfo = await getMatchInfo(matchId, region);
-					if ("error" in matchInfo || !matchInfo.data) return null;
-					cacheMatch(matchId, matchInfo.data);
-					return {
-						...getPlayerMatchResult(
-							matchInfo.data,
-							account.data.puuid
-						),
-						matchId,
-						isNewMatch: true,
-					};
+					return null;
 				});
 
 				const batchResults = await Promise.all(batchPromises);
 				const validResults = batchResults.filter(
-					(r): r is MatchResult & { isNewMatch: boolean } =>
-						Boolean(r && r.champion && r.placement)
+					(result): result is MatchResult & { isNewMatch: boolean } =>
+						result !== null
 				);
 				newHistory.push(...validResults);
 
-				setFetchProgress((prev) => ({
-					total: uniqueMatchIds.length,
-					fetched: prev ? prev.fetched + batch.length : batch.length,
-				}));
-
-				if (i + BATCH_SIZE < uniqueMatchIds.length) {
+				// Add delay between batches if there are more matches to process
+				if (i + BATCH_SIZE < matchIds.data.length) {
 					await new Promise((resolve) =>
 						setTimeout(resolve, BATCH_DELAY)
 					);
 				}
 			}
 
-			// 4. Update state and storage
-			const sortedHistory = newHistory.sort((a, b) =>
-				b.matchId.localeCompare(a.matchId)
-			);
-			setMatchHistoryState(sortedHistory);
-			setMatchHistory(sortedHistory);
+			setMatchHistoryState(newHistory);
+			setMatchHistory(newHistory);
 
-			const newMatches = newHistory.filter((result) => result.isNewMatch);
-			if (newMatches.length > 0) {
+			// Check for first place finishes only in new matches
+			const newFirstPlaceChampions = newHistory
+				.filter((result) => result.isNewMatch && result.placement === 1)
+				.map((result) => result.champion);
+
+			if (newFirstPlaceChampions.length > 0) {
 				const currentProgress = getArenaProgress();
-				const played = newMatches.map((m) => m.champion);
-				const firstPlace = newMatches
-					.filter((m) => m.placement === 1)
-					.map((m) => m.champion);
-
-				const newProgress: ArenaProgress = {
-					playedChampions: [
-						...new Set([
-							...(currentProgress.playedChampions || []),
-							...played,
-						]),
-					],
+				const newProgress = {
 					firstPlaceChampions: [
 						...new Set([
-							...(currentProgress.firstPlaceChampions || []),
-							...firstPlace,
+							...currentProgress.firstPlaceChampions,
+							...newFirstPlaceChampions,
 						]),
 					],
 				};
@@ -211,7 +175,6 @@ export function MatchHistory() {
 			setError("Failed to update match history");
 		} finally {
 			setIsLoading(false);
-			setFetchProgress(null);
 		}
 	};
 
@@ -250,30 +213,6 @@ export function MatchHistory() {
 						placeholder="Enter tag line"
 					/>
 				</div>
-				<div className="flex-1">
-					<label
-						htmlFor="region"
-						className="block text-sm font-medium mb-1"
-					>
-						Region
-					</label>
-					<select
-						id="region"
-						value={region}
-						onChange={(e) => {
-							const newRegion = e.target.value as Region;
-							setRegion(newRegion);
-							setStoredRegion(newRegion);
-						}}
-						className="w-full px-3 py-2 border rounded-md dark:bg-gray-800 dark:border-gray-700 h-[42px]"
-					>
-						{REGIONS.map((r) => (
-							<option key={r} value={r}>
-								{r}
-							</option>
-						))}
-					</select>
-				</div>
 				<button
 					onClick={handleUpdate}
 					disabled={isLoading}
@@ -282,29 +221,6 @@ export function MatchHistory() {
 					{isLoading ? "Updating..." : "Update"}
 				</button>
 			</div>
-
-			{fetchProgress && (
-				<div className="text-center space-y-2 pt-4">
-					<p className="text-sm text-gray-600 dark:text-gray-400">
-						Fetching match data... This may take several minutes.
-					</p>
-					<div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-						<div
-							className="bg-blue-600 h-2.5 rounded-full"
-							style={{
-								width: `${
-									(fetchProgress.fetched /
-										fetchProgress.total) *
-									100
-								}%`,
-							}}
-						></div>
-					</div>
-					<p className="text-sm font-medium">
-						{`Processed ${fetchProgress.fetched} of ${fetchProgress.total} matches.`}
-					</p>
-				</div>
-			)}
 
 			{error && (
 				<div className="p-4 bg-red-100 text-red-700 rounded-md dark:bg-red-900 dark:text-red-100">
