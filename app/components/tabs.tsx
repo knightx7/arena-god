@@ -43,7 +43,7 @@ export function Tabs({ images }: TabsProps) {
 		fetched: number;
 	} | null>(null);
 	const [eta, setEta] = useState<string | null>(null);
-	const [liveStats, setLiveStats] = useState<{
+	const [updateSummary, setUpdateSummary] = useState<{
 		firstPlaces: number;
 	} | null>(null);
 
@@ -79,33 +79,23 @@ export function Tabs({ images }: TabsProps) {
 		return `approx. ${minutes} minute${minutes > 1 ? "s" : ""} remaining`;
 	};
 
-	const updateArenaProgress = (
-		newMatches: (MatchResult & { isNewMatch: boolean })[]
-	) => {
-		if (newMatches.length === 0) return;
+	const recalculateProgressFromHistory = (
+		history: MatchResult[]
+	): ArenaProgress => {
+		const playedChampions = new Set<string>();
+		const firstPlaceChampions = new Set<string>();
 
-		const currentProgress = getArenaProgress();
-		const played = newMatches.map((m) => m.champion);
-		const firstPlace = newMatches
-			.filter((m) => m.placement === 1)
-			.map((m) => m.champion);
+		for (const match of history) {
+			playedChampions.add(match.champion);
+			if (match.placement === 1) {
+				firstPlaceChampions.add(match.champion);
+			}
+		}
 
-		const newProgress: ArenaProgress = {
-			playedChampions: [
-				...new Set([
-					...(currentProgress.playedChampions || []),
-					...played,
-				]),
-			],
-			firstPlaceChampions: [
-				...new Set([
-					...(currentProgress.firstPlaceChampions || []),
-					...firstPlace,
-				]),
-			],
+		return {
+			playedChampions: Array.from(playedChampions),
+			firstPlaceChampions: Array.from(firstPlaceChampions),
 		};
-		setArenaProgress(newProgress);
-		setArenaProgressState(newProgress); // Update local state for ImageGrid
 	};
 
 	const processMatches = async (
@@ -175,16 +165,11 @@ export function Tabs({ images }: TabsProps) {
 						b.matchId.localeCompare(a.matchId)
 					)
 				);
-				const newMatchesForProgress = validResults.filter(
-					(r) => r.isNewMatch
-				);
-				updateArenaProgress(newMatchesForProgress);
-
 				const firstsInBatch = validResults.filter(
 					(r) => r.placement === 1
 				).length;
 				if (firstsInBatch > 0) {
-					setLiveStats((prev) => ({
+					setUpdateSummary((prev) => ({
 						firstPlaces: (prev?.firstPlaces || 0) + firstsInBatch,
 					}));
 				}
@@ -222,7 +207,7 @@ export function Tabs({ images }: TabsProps) {
 		setError(null);
 		setFetchProgress(null);
 		setEta(null);
-		setLiveStats(null);
+		setUpdateSummary(null);
 
 		try {
 			const account = await getRiotAccount(gameName, tagLine, region);
@@ -299,6 +284,10 @@ export function Tabs({ images }: TabsProps) {
 						b.matchId.localeCompare(a.matchId)
 					);
 					setMatchHistory(sortedHistory);
+					const newProgress =
+						recalculateProgressFromHistory(sortedHistory);
+					setArenaProgress(newProgress);
+					setArenaProgressState(newProgress);
 				}
 			} else {
 				const twoYearsAgo = new Date();
@@ -362,6 +351,10 @@ export function Tabs({ images }: TabsProps) {
 					b.matchId.localeCompare(a.matchId)
 				);
 				setMatchHistory(sortedHistory);
+				const newProgress =
+					recalculateProgressFromHistory(sortedHistory);
+				setArenaProgress(newProgress);
+				setArenaProgressState(newProgress);
 			}
 		} catch (error: unknown) {
 			if (error instanceof Error) {
@@ -372,7 +365,6 @@ export function Tabs({ images }: TabsProps) {
 			setIsLoading(false);
 			setFetchProgress(null);
 			setEta(null);
-			setLiveStats(null);
 		}
 	};
 
@@ -435,7 +427,7 @@ export function Tabs({ images }: TabsProps) {
 						error={error}
 						fetchProgress={fetchProgress}
 						eta={eta}
-						liveStats={liveStats}
+						updateSummary={updateSummary}
 						onUpdate={handleUpdate}
 					/>
 				)}

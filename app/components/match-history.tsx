@@ -28,7 +28,7 @@ interface MatchHistoryProps {
 	error: string | null;
 	fetchProgress: { total: number; fetched: number } | null;
 	eta: string | null;
-	liveStats: { firstPlaces: number } | null;
+	updateSummary: { firstPlaces: number } | null;
 	onUpdate: (gameName: string, tagLine: string, region: Region) => void;
 }
 
@@ -44,7 +44,7 @@ export function MatchHistory({
 	error,
 	fetchProgress,
 	eta,
-	liveStats,
+	updateSummary,
 	onUpdate,
 }: MatchHistoryProps) {
 	return (
@@ -115,36 +115,47 @@ export function MatchHistory({
 				</button>
 			</div>
 
-			{fetchProgress && (
+			{(fetchProgress || updateSummary) && (
 				<div className="text-center space-y-2 pt-4">
-					<p className="text-sm text-gray-600 dark:text-gray-400">
-						Fetching match data... This may take several minutes.
-					</p>
-					<div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-						<div
-							className="bg-blue-600 h-2.5 rounded-full"
-							style={{
-								width: `${
-									(fetchProgress.fetched /
-										fetchProgress.total) *
-									100
-								}%`,
-							}}
-						></div>
-					</div>
-					<p className="text-sm font-medium">
-						{`Processed ${fetchProgress.fetched} of ${fetchProgress.total} matches.`}
-					</p>
-					{eta && (
-						<p className="text-xs text-gray-500 dark:text-gray-400">
-							{eta}
-						</p>
+					{fetchProgress && (
+						<>
+							<p className="text-sm text-gray-600 dark:text-gray-400">
+								Fetching match data... This may take several
+								minutes.
+							</p>
+							<div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+								<div
+									className="bg-blue-600 h-2.5 rounded-full"
+									style={{
+										width: `${
+											(fetchProgress.fetched /
+												fetchProgress.total) *
+											100
+										}%`,
+									}}
+								></div>
+							</div>
+							<p className="text-sm font-medium">
+								{`Processed ${fetchProgress.fetched} of ${fetchProgress.total} matches.`}
+							</p>
+							{eta && (
+								<p className="text-xs text-gray-500 dark:text-gray-400">
+									{eta}
+								</p>
+							)}
+						</>
 					)}
-					{liveStats && liveStats.firstPlaces > 0 && (
-						<p className="text-sm text-yellow-500 font-semibold animate-pulse">
-							Found {liveStats.firstPlaces} new 1st place
-							finish
-							{liveStats.firstPlaces > 1 ? "es" : ""}!
+					{updateSummary && updateSummary.firstPlaces > 0 && (
+						<p
+							className={`text-sm font-semibold ${
+								isLoading
+									? "text-yellow-500 animate-pulse"
+									: "text-gray-700 dark:text-gray-300"
+							}`}
+						>
+							{isLoading ? "Found" : "Update complete. Found"}{" "}
+							{updateSummary.firstPlaces} new 1st place finish
+							{updateSummary.firstPlaces > 1 ? "es" : ""}!
 						</p>
 					)}
 				</div>
