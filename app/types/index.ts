@@ -13,7 +13,6 @@ export interface MatchResult {
 
 export interface ArenaProgress {
 	firstPlaceChampions: string[];
-	topFourChampions: string[];
 	playedChampions: string[];
 }
 

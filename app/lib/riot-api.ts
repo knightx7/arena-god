@@ -58,13 +58,21 @@ export async function getRiotAccount(
 	}
 }
 
-export async function getMatchIds(puuid: string, region: Region) {
+export async function getMatchIds(
+	puuid: string,
+	region: Region,
+	start: number,
+	count: number,
+	startTime?: number
+) {
 	try {
-		const response = await fetch(
-			`/api/riot?endpoint=matches&puuid=${encodeURIComponent(
-				puuid
-			)}&region=${region}`
-		);
+		let url = `/api/riot?endpoint=matches&puuid=${encodeURIComponent(
+			puuid
+		)}&region=${region}&start=${start}&count=${count}`;
+		if (startTime) {
+			url += `&startTime=${startTime}`;
+		}
+		const response = await fetch(url);
 
 		if (!response.ok) {
 			throw new Error(`HTTP error! status: ${response.status}`);

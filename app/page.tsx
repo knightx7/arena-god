@@ -1,6 +1,6 @@
+import { Tabs } from "./components/tabs";
 import { getImageTiles } from "./lib/images";
 import { Github } from "lucide-react";
-import { MainContent } from "./components/main-content";
 
 export default async function Home() {
 	const images = await getImageTiles();
@@ -20,7 +20,7 @@ export default async function Home() {
 					<Github className="w-6 h-6" />
 				</a>
 			</div>
-			<MainContent images={images} />
+			<Tabs images={images} />
 		</div>
 	);
 }

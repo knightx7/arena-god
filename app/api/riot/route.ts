@@ -22,6 +22,9 @@ export async function GET(request: NextRequest) {
 	const puuid = searchParams.get("puuid");
 	const matchId = searchParams.get("matchId");
 	const region = searchParams.get("region") as Region;
+	const start = searchParams.get("start");
+	const count = searchParams.get("count");
+	const startTime = searchParams.get("startTime");
 
 	if (!endpoint) {
 		return NextResponse.json(
@@ -55,7 +58,10 @@ export async function GET(request: NextRequest) {
 						{ status: 400 }
 					);
 				}
-				url = `${RIOT_API_BASE}/lol/match/v5/matches/by-puuid/${puuid}/ids?queue=1700&start=0&count=40`;
+				url = `${RIOT_API_BASE}/lol/match/v5/matches/by-puuid/${puuid}/ids?queue=1700&start=${start}&count=${count}`;
+				if (startTime) {
+					url += `&startTime=${startTime}`;
+				}
 				break;
 
 			case "match":

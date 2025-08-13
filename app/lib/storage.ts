@@ -56,17 +56,20 @@ export function getArenaProgress(): ArenaProgress {
 	if (typeof window === "undefined")
 		return {
 			firstPlaceChampions: [],
-			topFourChampions: [],
 			playedChampions: [],
 		};
 	const stored = localStorage.getItem(STORAGE_KEYS.ARENA_PROGRESS);
-	return stored
+	const progress = stored
 		? JSON.parse(stored)
 		: {
 				firstPlaceChampions: [],
-				topFourChampions: [],
 				playedChampions: [],
 		  };
+	// Ensure old data structures are compatible
+	if (progress.topFourChampions) {
+		delete progress.topFourChampions;
+	}
+	return progress;
 }
 
 export function setArenaProgress(progress: ArenaProgress) {
