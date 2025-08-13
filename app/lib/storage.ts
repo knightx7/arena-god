@@ -1,11 +1,34 @@
-import { RiotId, MatchResult, ArenaProgress, MatchInfo } from "../types";
+import {
+	RiotId,
+	MatchResult,
+	ArenaProgress,
+	MatchInfo,
+	Region,
+} from "../types";
 
 const STORAGE_KEYS = {
 	RIOT_ID: "arena-god-riot-id",
 	MATCH_HISTORY: "arena-god-match-history",
 	ARENA_PROGRESS: "arena-god-progress",
 	MATCH_CACHE: "arena-god-match-cache",
+	REGION: "arena-god-region",
 } as const;
+
+export function getRegion(): Region | null {
+	if (typeof window === "undefined") return null;
+	const stored = localStorage.getItem(STORAGE_KEYS.REGION);
+	if (!stored) return null;
+	try {
+		return JSON.parse(stored) as Region;
+	} catch (e) {
+		return null;
+	}
+}
+
+export function setRegion(region: Region) {
+	if (typeof window === "undefined") return;
+	localStorage.setItem(STORAGE_KEYS.REGION, JSON.stringify(region));
+}
 
 export function getRiotId(): RiotId | null {
 	if (typeof window === "undefined") return null;
@@ -30,9 +53,20 @@ export function setMatchHistory(history: MatchResult[]) {
 }
 
 export function getArenaProgress(): ArenaProgress {
-	if (typeof window === "undefined") return { firstPlaceChampions: [] };
+	if (typeof window === "undefined")
+		return {
+			firstPlaceChampions: [],
+			topFourChampions: [],
+			playedChampions: [],
+		};
 	const stored = localStorage.getItem(STORAGE_KEYS.ARENA_PROGRESS);
-	return stored ? JSON.parse(stored) : { firstPlaceChampions: [] };
+	return stored
+		? JSON.parse(stored)
+		: {
+				firstPlaceChampions: [],
+				topFourChampions: [],
+				playedChampions: [],
+		  };
 }
 
 export function setArenaProgress(progress: ArenaProgress) {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { MatchResult } from "../types";
+import { MatchResult, Region, REGIONS } from "../types";
 import {
 	getRiotId,
 	setRiotId,
@@ -12,6 +12,8 @@ import {
 	cacheMatch,
 	getArenaProgress,
 	setArenaProgress,
+	getRegion,
+	setRegion as setStoredRegion,
 } from "../lib/storage";
 import {
 	getRiotAccount,
@@ -34,6 +36,7 @@ const PLACEMENT_COLORS = {
 export function MatchHistory() {
 	const [gameName, setGameName] = useState("");
 	const [tagLine, setTagLine] = useState("");
+	const [region, setRegion] = useState<Region>("NA");
 	const [matchHistory, setMatchHistoryState] = useState<MatchResult[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -43,6 +46,10 @@ export function MatchHistory() {
 		if (storedRiotId) {
 			setGameName(storedRiotId.gameName);
 			setTagLine(storedRiotId.tagLine);
+		}
+		const storedRegion = getRegion();
+		if (storedRegion) {
+			setRegion(storedRegion);
 		}
 		setMatchHistoryState(getMatchHistory());
 	}, []);
@@ -57,7 +64,7 @@ export function MatchHistory() {
 		setError(null);
 
 		try {
-			const account = await getRiotAccount(gameName, tagLine);
+			const account = await getRiotAccount(gameName, tagLine, region);
 			if ("error" in account && account.error) {
 				setError(
 					typeof account.error === "string"
@@ -78,7 +85,7 @@ export function MatchHistory() {
 			};
 			setRiotId(newRiotId);
 
-			const matchIds = await getMatchIds(account.data.puuid);
+			const matchIds = await getMatchIds(account.data.puuid, region);
 			if ("error" in matchIds) {
 				setError(matchIds.error || "Failed to fetch match IDs");
 				return;
@@ -115,7 +122,7 @@ export function MatchHistory() {
 					}
 
 					// If not in cache, fetch from API
-					const matchInfo = await getMatchInfo(matchId);
+					const matchInfo = await getMatchInfo(matchId, region);
 					if ("error" in matchInfo || !matchInfo.data) return null;
 
 					// Cache the match info
@@ -153,21 +160,40 @@ export function MatchHistory() {
 			setMatchHistoryState(newHistory);
 			setMatchHistory(newHistory);
 
-			// Check for first place finishes only in new matches
-			const newFirstPlaceChampions = newHistory
-				.filter((result) => result.isNewMatch && result.placement === 1)
-				.map((result) => result.champion);
+			const newMatches = newHistory.filter((result) => result.isNewMatch);
 
-			if (newFirstPlaceChampions.length > 0) {
+			if (newMatches.length > 0) {
 				const currentProgress = getArenaProgress();
+
+				const played = newMatches.map((m) => m.champion);
+				const topFour = newMatches
+					.filter((m) => m.placement <= 4)
+					.map((m) => m.champion);
+				const firstPlace = newMatches
+					.filter((m) => m.placement === 1)
+					.map((m) => m.champion);
+
 				const newProgress = {
+					playedChampions: [
+						...new Set([
+							...currentProgress.playedChampions,
+							...played,
+						]),
+					],
+					topFourChampions: [
+						...new Set([
+							...currentProgress.topFourChampions,
+							...topFour,
+						]),
+					],
 					firstPlaceChampions: [
 						...new Set([
 							...currentProgress.firstPlaceChampions,
-							...newFirstPlaceChampions,
+							...firstPlace,
 						]),
 					],
 				};
+
 				setArenaProgress(newProgress);
 			}
 		} catch (error) {
@@ -212,6 +238,30 @@ export function MatchHistory() {
 						className="w-full px-3 py-2 border rounded-md dark:bg-gray-800 dark:border-gray-700"
 						placeholder="Enter tag line"
 					/>
+				</div>
+				<div className="flex-1">
+					<label
+						htmlFor="region"
+						className="block text-sm font-medium mb-1"
+					>
+						Region
+					</label>
+					<select
+						id="region"
+						value={region}
+						onChange={(e) => {
+							const newRegion = e.target.value as Region;
+							setRegion(newRegion);
+							setStoredRegion(newRegion);
+						}}
+						className="w-full px-3 py-2 border rounded-md dark:bg-gray-800 dark:border-gray-700 h-[42px]"
+					>
+						{REGIONS.map((r) => (
+							<option key={r} value={r}>
+								{r}
+							</option>
+						))}
+					</select>
 				</div>
 				<button
 					onClick={handleUpdate}

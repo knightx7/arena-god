@@ -1,5 +1,5 @@
 import { z } from "zod";
-
+import { Region } from "../types";
 // Types
 export const RiotAccountSchema = z.object({
 	puuid: z.string(),
@@ -33,12 +33,16 @@ export type MatchParticipant = z.infer<typeof MatchParticipantSchema>;
 export type MatchInfo = z.infer<typeof MatchInfoSchema>;
 
 // Server Actions
-export async function getRiotAccount(gameName: string, tagLine: string) {
+export async function getRiotAccount(
+	gameName: string,
+	tagLine: string,
+	region: Region
+) {
 	try {
 		const response = await fetch(
 			`/api/riot?endpoint=account&gameName=${encodeURIComponent(
 				gameName
-			)}&tagLine=${encodeURIComponent(tagLine)}`
+			)}&tagLine=${encodeURIComponent(tagLine)}&region=${region}`
 		);
 
 		const data = await response.json();
@@ -54,10 +58,12 @@ export async function getRiotAccount(gameName: string, tagLine: string) {
 	}
 }
 
-export async function getMatchIds(puuid: string) {
+export async function getMatchIds(puuid: string, region: Region) {
 	try {
 		const response = await fetch(
-			`/api/riot?endpoint=matches&puuid=${encodeURIComponent(puuid)}`
+			`/api/riot?endpoint=matches&puuid=${encodeURIComponent(
+				puuid
+			)}&region=${region}`
 		);
 
 		if (!response.ok) {
@@ -72,10 +78,12 @@ export async function getMatchIds(puuid: string) {
 	}
 }
 
-export async function getMatchInfo(matchId: string) {
+export async function getMatchInfo(matchId: string, region: Region) {
 	try {
 		const response = await fetch(
-			`/api/riot?endpoint=match&matchId=${encodeURIComponent(matchId)}`
+			`/api/riot?endpoint=match&matchId=${encodeURIComponent(
+				matchId
+			)}&region=${region}`
 		);
 
 		if (!response.ok) {

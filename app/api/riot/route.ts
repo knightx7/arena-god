@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { REGION_TO_CONTINENT, Region } from "../../types";
 
-const RIOT_API_BASE = "https://europe.api.riotgames.com";
 const RIOT_TOKEN = process.env.RIOT_API_TOKEN;
 
 if (!RIOT_TOKEN) {
@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
 	const tagLine = searchParams.get("tagLine");
 	const puuid = searchParams.get("puuid");
 	const matchId = searchParams.get("matchId");
+	const region = searchParams.get("region") as Region;
 
 	if (!endpoint) {
 		return NextResponse.json(
@@ -25,6 +26,11 @@ export async function GET(request: NextRequest) {
 			{ status: 400 }
 		);
 	}
+
+	const continent = region
+		? REGION_TO_CONTINENT[region]
+		: REGION_TO_CONTINENT.NA;
+	const RIOT_API_BASE = `https://${continent}.api.riotgames.com`;
 
 	try {
 		let url = "";
