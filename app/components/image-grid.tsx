@@ -2,34 +2,78 @@
 
 import Image from "next/image";
 import { ImageTile } from "../lib/images";
-import { getArenaProgress, setArenaProgress } from "../lib/storage";
-import { useState, useEffect, useMemo } from "react";
+import { setArenaProgress } from "../lib/storage";
+import { useState, useMemo, useEffect } from "react";
 import { Star, Check, Circle, ArrowUpDown, ArrowDownUp } from "lucide-react";
 import { ArenaProgress } from "../types";
 
 interface ImageGridProps {
 	images: ImageTile[];
 	displayImages?: ImageTile[];
+	progress: ArenaProgress | null;
+	setProgress: (progress: ArenaProgress) => void;
 }
 
 type SortMode = "completion" | "alphabetical";
 type SortDirection = "asc" | "desc";
 type FilterMode = "all" | "played" | "firstPlace";
 
-export function ImageGrid({ images, displayImages = images }: ImageGridProps) {
+export function ImageGrid({
+	images,
+	displayImages = images,
+	progress,
+	setProgress,
+}: ImageGridProps) {
 	const [mounted, setMounted] = useState(false);
-	const [progress, setProgress] = useState<ArenaProgress>({
-		firstPlaceChampions: [],
-		playedChampions: [],
-	});
 	const [sortMode, setSortMode] = useState<SortMode>("completion");
 	const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 	const [filterMode, setFilterMode] = useState<FilterMode>("all");
 
 	useEffect(() => {
 		setMounted(true);
-		setProgress(getArenaProgress());
 	}, []);
+
+	const filteredAndSortedImages = useMemo(() => {
+		let items = displayImages;
+		if (progress && filterMode === "played") {
+			items = displayImages.filter((img) =>
+				progress.playedChampions.includes(img.name)
+			);
+		} else if (progress && filterMode === "firstPlace") {
+			items = displayImages.filter((img) =>
+				progress.firstPlaceChampions.includes(img.name)
+			);
+		}
+
+		return [...items].sort((a, b) => {
+			if (progress && sortMode === "completion") {
+				const aCompleted = progress.firstPlaceChampions.includes(
+					a.name
+				);
+				const bCompleted = progress.firstPlaceChampions.includes(
+					b.name
+				);
+				if (aCompleted !== bCompleted) {
+					return sortDirection === "asc"
+						? aCompleted
+							? -1
+							: 1
+						: aCompleted
+						? 1
+						: -1;
+				}
+				return a.name.localeCompare(b.name);
+			}
+			return sortDirection === "asc"
+				? a.name.localeCompare(b.name)
+				: b.name.localeCompare(a.name);
+		});
+	}, [displayImages, filterMode, sortMode, sortDirection, progress]);
+
+	if (!progress) {
+		// or a loading skeleton
+		return null;
+	}
 
 	const firstPlaceCount = progress.firstPlaceChampions.length;
 	const playedCount = progress.playedChampions.length;
@@ -79,43 +123,6 @@ export function ImageGrid({ images, displayImages = images }: ImageGridProps) {
 		setProgress(newProgress);
 		setArenaProgress(newProgress);
 	};
-
-	const filteredAndSortedImages = useMemo(() => {
-		let items = displayImages;
-		if (filterMode === "played") {
-			items = displayImages.filter((img) =>
-				progress.playedChampions.includes(img.name)
-			);
-		} else if (filterMode === "firstPlace") {
-			items = displayImages.filter((img) =>
-				progress.firstPlaceChampions.includes(img.name)
-			);
-		}
-
-		return [...items].sort((a, b) => {
-			if (sortMode === "completion") {
-				const aCompleted = progress.firstPlaceChampions.includes(
-					a.name
-				);
-				const bCompleted = progress.firstPlaceChampions.includes(
-					b.name
-				);
-				if (aCompleted !== bCompleted) {
-					return sortDirection === "asc"
-						? aCompleted
-							? -1
-							: 1
-						: aCompleted
-						? 1
-						: -1;
-				}
-				return a.name.localeCompare(b.name);
-			}
-			return sortDirection === "asc"
-				? a.name.localeCompare(b.name)
-				: b.name.localeCompare(a.name);
-		});
-	}, [displayImages, filterMode, sortMode, sortDirection, progress]);
 
 	if (!mounted) {
 		return null;

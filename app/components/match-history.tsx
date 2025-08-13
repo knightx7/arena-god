@@ -1,26 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
-import { ArenaProgress, MatchResult, Region, REGIONS } from "../types";
-import {
-	getRiotId,
-	setRiotId,
-	getMatchHistory,
-	setMatchHistory,
-	getCachedMatch,
-	cacheMatch,
-	getArenaProgress,
-	setArenaProgress,
-	getRegion,
-	setRegion as setStoredRegion,
-} from "../lib/storage";
-import {
-	getRiotAccount,
-	getMatchIds,
-	getMatchInfo,
-	getPlayerMatchResult,
-} from "../lib/riot-api";
+import { MatchResult, Region, REGIONS } from "../types";
+import { setRegion as setStoredRegion } from "../lib/storage";
 
 const PLACEMENT_COLORS = {
 	1: "bg-yellow-500 dark:bg-yellow-600",
@@ -33,369 +15,38 @@ const PLACEMENT_COLORS = {
 	8: "bg-gray-400 dark:bg-gray-700",
 } as const;
 
-export function MatchHistory() {
-	const [gameName, setGameName] = useState("");
-	const [tagLine, setTagLine] = useState("");
-	const [region, setRegion] = useState<Region>("NA");
-	const [matchHistory, setMatchHistoryState] = useState<MatchResult[]>([]);
-	const [isLoading, setIsLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [fetchProgress, setFetchProgress] = useState<{
-		total: number;
-		fetched: number;
-	} | null>(null);
-	const [eta, setEta] = useState<string | null>(null);
-	const [liveStats, setLiveStats] = useState<{
-		firstPlaces: number;
-	} | null>(null);
-	const fetchControllerRef = useRef<AbortController | null>(null);
+interface MatchHistoryProps {
+	// Props from parent
+	gameName: string;
+	setGameName: (name: string) => void;
+	tagLine: string;
+	setTagLine: (tag: string) => void;
+	region: Region;
+	setRegion: (region: Region) => void;
+	matchHistory: MatchResult[];
+	isLoading: boolean;
+	error: string | null;
+	fetchProgress: { total: number; fetched: number } | null;
+	eta: string | null;
+	liveStats: { firstPlaces: number } | null;
+	onUpdate: (gameName: string, tagLine: string, region: Region) => void;
+}
 
-	const formatEta = (seconds: number) => {
-		if (seconds < 60) {
-			return "less than a minute remaining";
-		}
-		const minutes = Math.ceil(seconds / 60);
-		return `approx. ${minutes} minute${minutes > 1 ? "s" : ""} remaining`;
-	};
-
-	useEffect(() => {
-		const storedRiotId = getRiotId();
-		if (storedRiotId) {
-			setGameName(storedRiotId.gameName);
-			setTagLine(storedRiotId.tagLine);
-		}
-		const storedRegion = getRegion();
-		if (storedRegion) {
-			setRegion(storedRegion);
-		}
-		setMatchHistoryState(getMatchHistory());
-
-		return () => {
-			if (fetchControllerRef.current) {
-				fetchControllerRef.current.abort();
-			}
-		};
-	}, []);
-
-	const processMatches = async (
-		matchIds: string[],
-		puuid: string,
-		region: Region,
-		signal: AbortSignal
-	) => {
-		setFetchProgress({ total: matchIds.length, fetched: 0 });
-
-		const BATCH_SIZE = 10;
-		const BATCH_DELAY = 1200;
-		const allProcessedMatches: (MatchResult & { isNewMatch: boolean })[] =
-			[];
-		setMatchHistoryState([]); // Clear visual history before starting
-
-		for (let i = 0; i < matchIds.length; i += BATCH_SIZE) {
-			if (signal.aborted) {
-				console.log("Fetch aborted by component unmount.");
-				break;
-			}
-			const batch = matchIds.slice(i, i + BATCH_SIZE);
-			const batchPromises = batch.map(async (matchId) => {
-				try {
-					const cachedResult = getCachedMatch(matchId);
-					if (cachedResult) {
-						return {
-							...cachedResult,
-							matchId,
-							isNewMatch: false,
-						};
-					}
-					const matchInfo = await getMatchInfo(
-						matchId,
-						region,
-						signal
-					);
-					if ("error" in matchInfo || !matchInfo.data) {
-						console.error(
-							`Failed to fetch match info for ${matchId}`
-						);
-						return null;
-					}
-					const playerResult = getPlayerMatchResult(
-						matchInfo.data.info.participants,
-						puuid
-					);
-					if (playerResult) {
-						cacheMatch(matchId, playerResult);
-						return {
-							...playerResult,
-							matchId,
-							isNewMatch: true,
-						};
-					}
-					return null;
-				} catch (error: unknown) {
-					if (error instanceof Error && error.name !== "AbortError") {
-						console.error(
-							`Error processing match ${matchId}:`,
-							error
-						);
-					}
-					return null;
-				}
-			});
-
-			const batchResults = await Promise.all(batchPromises);
-			const validResults = batchResults.filter(
-				(r): r is MatchResult & { isNewMatch: boolean } =>
-					Boolean(r && r.champion && r.placement)
-			);
-
-			if (validResults.length > 0) {
-				allProcessedMatches.push(...validResults);
-				setMatchHistoryState((prev) =>
-					[...prev, ...validResults].sort((a, b) =>
-						b.matchId.localeCompare(a.matchId)
-					)
-				);
-				const newMatchesForProgress = validResults.filter(
-					(r) => r.isNewMatch
-				);
-				updateArenaProgress(newMatchesForProgress);
-
-				const firstsInBatch = validResults.filter(
-					(r) => r.placement === 1
-				).length;
-				if (firstsInBatch > 0) {
-					setLiveStats((prev) => ({
-						firstPlaces: (prev?.firstPlaces || 0) + firstsInBatch,
-					}));
-				}
-			}
-
-			setFetchProgress((prev) => ({
-				total: matchIds.length,
-				fetched: prev ? prev.fetched + batch.length : batch.length,
-			}));
-
-			const batchesRemaining = Math.ceil(
-				(matchIds.length - (i + batch.length)) / BATCH_SIZE
-			);
-			const secondsRemaining = batchesRemaining * (BATCH_DELAY / 1000);
-			setEta(formatEta(secondsRemaining));
-
-			if (i + BATCH_SIZE < matchIds.length) {
-				await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY));
-			}
-		}
-		return allProcessedMatches;
-	};
-
-	const updateArenaProgress = (
-		newMatches: (MatchResult & { isNewMatch: boolean })[]
-	) => {
-		if (newMatches.length === 0) return;
-
-		const currentProgress = getArenaProgress();
-		const played = newMatches.map((m) => m.champion);
-		const firstPlace = newMatches
-			.filter((m) => m.placement === 1)
-			.map((m) => m.champion);
-
-		const newProgress: ArenaProgress = {
-			playedChampions: [
-				...new Set([
-					...(currentProgress.playedChampions || []),
-					...played,
-				]),
-			],
-			firstPlaceChampions: [
-				...new Set([
-					...(currentProgress.firstPlaceChampions || []),
-					...firstPlace,
-				]),
-			],
-		};
-		setArenaProgress(newProgress);
-	};
-
-	const handleUpdate = async () => {
-		if (!gameName || !tagLine) {
-			setError("Please enter both game name and tag line");
-			return;
-		}
-
-		setIsLoading(true);
-		setError(null);
-		setFetchProgress(null);
-		setEta(null);
-		setLiveStats(null);
-
-		fetchControllerRef.current = new AbortController();
-		const signal = fetchControllerRef.current.signal;
-
-		try {
-			// 1. Get Account PUUID
-			const account = await getRiotAccount(
-				gameName,
-				tagLine,
-				region,
-				signal
-			);
-			if ("error" in account && account.error) {
-				setError(
-					typeof account.error === "string"
-						? account.error
-						: account.error.status.message
-				);
-				setIsLoading(false);
-				return;
-			}
-			if (!account.data) {
-				setError("No account data received");
-				setIsLoading(false);
-				return;
-			}
-			const puuid = account.data.puuid;
-			setRiotId({
-				gameName: account.data.gameName,
-				tagLine: account.data.tagLine,
-			});
-
-			// 2. Determine update strategy
-			const cachedHistory = getMatchHistory();
-			if (cachedHistory.length > 0) {
-				// Incremental update
-				const cachedMatchIdSet = new Set(
-					cachedHistory.map((m) => m.matchId)
-				);
-				const newMatchIds: string[] = [];
-				let start = 0;
-				const count = 100;
-				let foundOverlap = false;
-
-				while (true) {
-					const matchIdsResponse = await getMatchIds(
-						puuid,
-						region,
-						start,
-						count,
-						signal
-					);
-					if ("error" in matchIdsResponse || !matchIdsResponse.data) {
-						setError("Failed to fetch new matches.");
-						break;
-					}
-
-					const pageIds = matchIdsResponse.data;
-					const newIdsOnPage: string[] = [];
-					for (const id of pageIds) {
-						if (cachedMatchIdSet.has(id)) {
-							foundOverlap = true;
-							break;
-						}
-						newIdsOnPage.push(id);
-					}
-					newMatchIds.push(...newIdsOnPage);
-
-					if (foundOverlap || pageIds.length < count) {
-						break;
-					}
-					start += count;
-				}
-
-				if (newMatchIds.length > 0) {
-					const processedNewMatches = await processMatches(
-						newMatchIds,
-						puuid,
-						region,
-						signal
-					);
-					const combinedHistory = [
-						...processedNewMatches,
-						...cachedHistory,
-					];
-					const sortedHistory = combinedHistory.sort((a, b) =>
-						b.matchId.localeCompare(a.matchId)
-					);
-					setMatchHistory(sortedHistory);
-				}
-			} else {
-				// Full 2-year history fetch
-				const twoYearsAgo = new Date();
-				twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-				const now = new Date();
-				const timeIntervals: { startTime: number; endTime: number }[] =
-					[];
-				let current = new Date(twoYearsAgo);
-
-				while (current < now) {
-					const start = new Date(current);
-					const end = new Date(current);
-					end.setMonth(end.getMonth() + 1);
-					const effectiveEnd = end > now ? now : end;
-					timeIntervals.push({
-						startTime: Math.floor(start.getTime() / 1000),
-						endTime: Math.floor(effectiveEnd.getTime() / 1000),
-					});
-					current = new Date(end);
-				}
-
-				const allMatchIds = new Set<string>();
-				for (const interval of timeIntervals.reverse()) {
-					let start = 0;
-					const count = 100;
-					while (true) {
-						const matchIdsResponse = await getMatchIds(
-							puuid,
-							region,
-							start,
-							count,
-							signal,
-							interval.startTime,
-							interval.endTime
-						);
-						if (
-							"error" in matchIdsResponse ||
-							!matchIdsResponse.data
-						) {
-							console.error(
-								`Failed to fetch matches for a time interval.`
-							);
-							break;
-						}
-						matchIdsResponse.data.forEach((id) =>
-							allMatchIds.add(id)
-						);
-						if (matchIdsResponse.data.length < count) {
-							break;
-						}
-						start += count;
-					}
-				}
-
-				const uniqueMatchIds = Array.from(allMatchIds);
-				const newHistory = await processMatches(
-					uniqueMatchIds,
-					puuid,
-					region,
-					signal
-				);
-				const sortedHistory = newHistory.sort((a, b) =>
-					b.matchId.localeCompare(a.matchId)
-				);
-				setMatchHistory(sortedHistory);
-			}
-		} catch (error: unknown) {
-			if (error instanceof Error && error.name !== "AbortError") {
-				console.error("Failed to update match history:", error);
-				setError("Failed to update match history");
-			}
-		} finally {
-			setIsLoading(false);
-			setFetchProgress(null);
-			setEta(null);
-			setLiveStats(null);
-		}
-	};
-
+export function MatchHistory({
+	gameName,
+	setGameName,
+	tagLine,
+	setTagLine,
+	region,
+	setRegion,
+	matchHistory,
+	isLoading,
+	error,
+	fetchProgress,
+	eta,
+	liveStats,
+	onUpdate,
+}: MatchHistoryProps) {
 	return (
 		<div className="space-y-6">
 			<div className="flex flex-col sm:flex-row gap-4 sm:items-end">
@@ -456,7 +107,7 @@ export function MatchHistory() {
 					</select>
 				</div>
 				<button
-					onClick={handleUpdate}
+					onClick={() => onUpdate(gameName, tagLine, region)}
 					disabled={isLoading}
 					className="h-[42px] px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
 				>
