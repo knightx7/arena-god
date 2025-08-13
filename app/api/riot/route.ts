@@ -1,23 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const RIOT_API_BASE = "https://europe.api.riotgames.com";
-const RIOT_TOKEN = process.env.RIOT_API_TOKEN;
-
-if (!RIOT_TOKEN) {
-	throw new Error("RIOT_API_TOKEN environment variable is not set");
-}
-
-const headers = {
-	"X-Riot-Token": RIOT_TOKEN,
-};
+import { REGION_TO_CONTINENT, Region } from "../../types";
 
 export async function GET(request: NextRequest) {
+	const RIOT_TOKEN = process.env.RIOT_API_TOKEN;
+
+	if (!RIOT_TOKEN) {
+		return NextResponse.json(
+			{ error: "RIOT_API_TOKEN environment variable is not set" },
+			{ status: 500 }
+		);
+	}
+
+	const headers = {
+		"X-Riot-Token": RIOT_TOKEN,
+	};
+
 	const searchParams = request.nextUrl.searchParams;
 	const endpoint = searchParams.get("endpoint");
 	const gameName = searchParams.get("gameName");
 	const tagLine = searchParams.get("tagLine");
 	const puuid = searchParams.get("puuid");
 	const matchId = searchParams.get("matchId");
+	const region = searchParams.get("region") as Region;
+	const start = searchParams.get("start");
+	const count = searchParams.get("count");
+	const startTime = searchParams.get("startTime");
 
 	if (!endpoint) {
 		return NextResponse.json(
@@ -25,6 +32,11 @@ export async function GET(request: NextRequest) {
 			{ status: 400 }
 		);
 	}
+
+	const continent = region
+		? REGION_TO_CONTINENT[region]
+		: REGION_TO_CONTINENT.NA;
+	const RIOT_API_BASE = `https://${continent}.api.riotgames.com`;
 
 	try {
 		let url = "";
@@ -46,7 +58,10 @@ export async function GET(request: NextRequest) {
 						{ status: 400 }
 					);
 				}
-				url = `${RIOT_API_BASE}/lol/match/v5/matches/by-puuid/${puuid}/ids?queue=1700&start=0&count=40`;
+				url = `${RIOT_API_BASE}/lol/match/v5/matches/by-puuid/${puuid}/ids?queue=1700&start=${start}&count=${count}`;
+				if (startTime) {
+					url += `&startTime=${startTime}`;
+				}
 				break;
 
 			case "match":
