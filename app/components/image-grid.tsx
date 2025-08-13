@@ -4,7 +4,7 @@ import Image from "next/image";
 import { ImageTile } from "../lib/images";
 import { getArenaProgress, setArenaProgress } from "../lib/storage";
 import { useState, useEffect, useMemo } from "react";
-import { CheckCircle2, Circle, ArrowUpDown, ArrowDownUp } from "lucide-react";
+import { Star, Check, Circle, ArrowUpDown, ArrowDownUp } from "lucide-react";
 import { ArenaProgress } from "../types";
 
 interface ImageGridProps {
@@ -35,20 +35,47 @@ export function ImageGrid({ images, displayImages = images }: ImageGridProps) {
 	const playedCount = progress.playedChampions.length;
 	const totalCount = images.length;
 
-	const toggleChampion = (championName: string) => {
-		const isCompleted = progress.firstPlaceChampions.includes(championName);
-		const newFirstPlaceChampions = isCompleted
-			? progress.firstPlaceChampions.filter(
+	const toggleFirstPlace = (championName: string) => {
+		const isFirstPlace =
+			progress.firstPlaceChampions.includes(championName);
+		const newProgress: ArenaProgress = { ...progress };
+
+		if (isFirstPlace) {
+			newProgress.firstPlaceChampions =
+				progress.firstPlaceChampions.filter(
 					(name) => name !== championName
-			  )
-			: [...progress.firstPlaceChampions, championName];
-		const newProgress: ArenaProgress = {
-			...progress,
-			firstPlaceChampions: newFirstPlaceChampions,
-			playedChampions: [
+				);
+		} else {
+			newProgress.firstPlaceChampions = [
+				...progress.firstPlaceChampions,
+				championName,
+			];
+			newProgress.playedChampions = [
 				...new Set([...progress.playedChampions, championName]),
-			],
-		};
+			];
+		}
+		setProgress(newProgress);
+		setArenaProgress(newProgress);
+	};
+
+	const togglePlayed = (championName: string) => {
+		const isPlayed = progress.playedChampions.includes(championName);
+		const newProgress: ArenaProgress = { ...progress };
+
+		if (isPlayed) {
+			newProgress.playedChampions = progress.playedChampions.filter(
+				(name) => name !== championName
+			);
+			newProgress.firstPlaceChampions =
+				progress.firstPlaceChampions.filter(
+					(name) => name !== championName
+				);
+		} else {
+			newProgress.playedChampions = [
+				...progress.playedChampions,
+				championName,
+			];
+		}
 		setProgress(newProgress);
 		setArenaProgress(newProgress);
 	};
@@ -101,13 +128,13 @@ export function ImageGrid({ images, displayImages = images }: ImageGridProps) {
 					<h3 className="text-lg font-medium">Progress</h3>
 					<div className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-4">
 						<span>
-							<span className="font-bold text-green-500">
+							<span className="font-bold text-yellow-500">
 								{firstPlaceCount}
 							</span>{" "}
 							1st Place
 						</span>
 						<span>
-							<span className="font-bold text-yellow-400">
+							<span className="font-bold text-green-500">
 								{playedCount}
 							</span>{" "}
 							Played
@@ -119,14 +146,14 @@ export function ImageGrid({ images, displayImages = images }: ImageGridProps) {
 				</div>
 				<div className="relative h-4 bg-gray-200 dark:bg-gray-700 rounded-full">
 					<div
-						className="absolute top-0 left-0 h-full bg-yellow-400 rounded-full"
+						className="absolute top-0 left-0 h-full bg-green-500 rounded-full"
 						style={{
 							width: `${(playedCount / totalCount) * 100}%`,
 							zIndex: 1,
 						}}
 					/>
 					<div
-						className="absolute top-0 left-0 h-full bg-green-500 rounded-full"
+						className="absolute top-0 left-0 h-full bg-yellow-500 rounded-full"
 						style={{
 							width: `${
 								(firstPlaceCount / totalCount) * 100
@@ -202,7 +229,9 @@ export function ImageGrid({ images, displayImages = images }: ImageGridProps) {
 
 			<div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
 				{filteredAndSortedImages.map((image) => {
-					const isCompleted = progress.firstPlaceChampions.includes(
+					const isFirstPlace =
+						progress.firstPlaceChampions.includes(image.name);
+					const isPlayed = progress.playedChampions.includes(
 						image.name
 					);
 					return (
@@ -210,31 +239,47 @@ export function ImageGrid({ images, displayImages = images }: ImageGridProps) {
 							key={image.name}
 							className="group relative flex flex-col items-center"
 						>
-							<button
-								onClick={() => toggleChampion(image.name)}
-								className="relative w-full aspect-square mb-2 group"
-							>
+							<div className="relative w-full aspect-square mb-2 group">
 								<Image
 									src={image.src}
 									alt={image.name}
 									fill
 									className={`object-cover rounded-lg ${
-										isCompleted
+										isPlayed || isFirstPlace
 											? "opacity-100"
 											: "opacity-50"
-									} group-hover:opacity-100`}
+									} group-hover:opacity-100 transition-opacity`}
 									sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
 								/>
-								<div
-									className={`absolute top-2 right-2 p-1 rounded-full bg-white/90 dark:bg-gray-800/90 shadow-sm ${
-										isCompleted ? "scale-110" : "scale-100"
-									}`}
-								>
-									{isCompleted ? (
-										<CheckCircle2 className="w-5 h-5 text-green-500" />
-									) : (
-										<Circle className="w-5 h-5 text-gray-400" />
-									)}
+								<div className="absolute top-1.5 right-1.5 flex gap-1">
+									<button
+										onClick={(e) => {
+											e.stopPropagation();
+											togglePlayed(image.name);
+										}}
+										className="p-1 rounded-full bg-white/80 dark:bg-gray-800/80 shadow-sm"
+										title="Toggle Played"
+									>
+										{isPlayed ? (
+											<Check className="w-4 h-4 text-green-500" />
+										) : (
+											<Circle className="w-4 h-4 text-gray-400" />
+										)}
+									</button>
+									<button
+										onClick={(e) => {
+											e.stopPropagation();
+											toggleFirstPlace(image.name);
+										}}
+										className="p-1 rounded-full bg-white/80 dark:bg-gray-800/80 shadow-sm"
+										title="Toggle 1st Place"
+									>
+										{isFirstPlace ? (
+											<Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+										) : (
+											<Star className="w-4 h-4 text-gray-400" />
+										)}
+									</button>
 								</div>
 								<div className="absolute top-2 left-2 flex flex-col gap-1">
 									<a
@@ -265,7 +310,7 @@ export function ImageGrid({ images, displayImages = images }: ImageGridProps) {
 										metasrc
 									</a>
 								</div>
-							</button>
+							</div>
 							<span className="text-sm text-center font-medium">
 								{image.name}
 							</span>
