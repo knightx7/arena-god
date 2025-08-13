@@ -63,7 +63,8 @@ export async function getMatchIds(
 	region: Region,
 	start: number,
 	count: number,
-	startTime?: number
+	startTime?: number,
+	endTime?: number
 ) {
 	try {
 		let url = `/api/riot?endpoint=matches&puuid=${encodeURIComponent(
@@ -71,6 +72,9 @@ export async function getMatchIds(
 		)}&region=${region}&start=${start}&count=${count}`;
 		if (startTime) {
 			url += `&startTime=${startTime}`;
+		}
+		if (endTime) {
+			url += `&endTime=${endTime}`;
 		}
 		const response = await fetch(url);
 
@@ -108,10 +112,10 @@ export async function getMatchInfo(matchId: string, region: Region) {
 
 // Helper function to get player's placement in a match
 export function getPlayerMatchResult(
-	matchInfo: MatchInfo,
+	participants: MatchParticipant[],
 	playerPuuid: string
 ) {
-	const player = matchInfo.info.participants.find(
+	const player = participants.find(
 		(p: MatchParticipant) => p.puuid === playerPuuid
 	);
 

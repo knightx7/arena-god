@@ -58,6 +58,96 @@ export function MatchHistory() {
 		setMatchHistoryState(getMatchHistory());
 	}, []);
 
+	const processMatches = async (
+		matchIds: string[],
+		puuid: string,
+		region: Region
+	) => {
+		setFetchProgress({ total: matchIds.length, fetched: 0 });
+
+		const BATCH_SIZE = 10;
+		const BATCH_DELAY = 1200;
+		const processedMatches: (MatchResult & { isNewMatch: boolean })[] = [];
+
+		for (let i = 0; i < matchIds.length; i += BATCH_SIZE) {
+			const batch = matchIds.slice(i, i + BATCH_SIZE);
+			const batchPromises = batch.map(async (matchId) => {
+				try {
+					const cachedParticipants = getCachedMatch(matchId);
+					if (cachedParticipants) {
+						return {
+							...getPlayerMatchResult(cachedParticipants, puuid),
+							matchId,
+							isNewMatch: false,
+						};
+					}
+					const matchInfo = await getMatchInfo(matchId, region);
+					if ("error" in matchInfo || !matchInfo.data) {
+						console.error(
+							`Failed to fetch match info for ${matchId}`
+						);
+						return null;
+					}
+					const participants = matchInfo.data.info.participants;
+					cacheMatch(matchId, participants);
+					return {
+						...getPlayerMatchResult(participants, puuid),
+						matchId,
+						isNewMatch: true,
+					};
+				} catch (error) {
+					console.error(`Error processing match ${matchId}:`, error);
+					return null;
+				}
+			});
+
+			const batchResults = await Promise.all(batchPromises);
+			const validResults = batchResults.filter(
+				(r): r is MatchResult & { isNewMatch: boolean } =>
+					Boolean(r && r.champion && r.placement)
+			);
+			processedMatches.push(...validResults);
+
+			setFetchProgress((prev) => ({
+				total: matchIds.length,
+				fetched: prev ? prev.fetched + batch.length : batch.length,
+			}));
+
+			if (i + BATCH_SIZE < matchIds.length) {
+				await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY));
+			}
+		}
+		return processedMatches;
+	};
+
+	const updateArenaProgress = (
+		newMatches: (MatchResult & { isNewMatch: boolean })[]
+	) => {
+		if (newMatches.length === 0) return;
+
+		const currentProgress = getArenaProgress();
+		const played = newMatches.map((m) => m.champion);
+		const firstPlace = newMatches
+			.filter((m) => m.placement === 1)
+			.map((m) => m.champion);
+
+		const newProgress: ArenaProgress = {
+			playedChampions: [
+				...new Set([
+					...(currentProgress.playedChampions || []),
+					...played,
+				]),
+			],
+			firstPlaceChampions: [
+				...new Set([
+					...(currentProgress.firstPlaceChampions || []),
+					...firstPlace,
+				]),
+			],
+		};
+		setArenaProgress(newProgress);
+	};
+
 	const handleUpdate = async () => {
 		if (!gameName || !tagLine) {
 			setError("Please enter both game name and tag line");
@@ -85,126 +175,143 @@ export function MatchHistory() {
 				setIsLoading(false);
 				return;
 			}
+			const puuid = account.data.puuid;
 			setRiotId({
 				gameName: account.data.gameName,
 				tagLine: account.data.tagLine,
 			});
 
-			// 2. Fetch all match IDs from the last 2 years
-			const twoYearsAgo = new Date();
-			twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-			const startTime = Math.floor(twoYearsAgo.getTime() / 1000);
-
-			const allMatchIds: string[] = [];
-			let start = 0;
-			const count = 100;
-
-			while (true) {
-				const matchIdsResponse = await getMatchIds(
-					account.data.puuid,
-					region,
-					start,
-					count,
-					startTime
+			// 2. Determine update strategy
+			const cachedHistory = getMatchHistory();
+			if (cachedHistory.length > 0) {
+				// Incremental update
+				const cachedMatchIdSet = new Set(
+					cachedHistory.map((m) => m.matchId)
 				);
-				if ("error" in matchIdsResponse || !matchIdsResponse.data) {
-					setError("Failed to fetch a batch of match IDs.");
-					break; // Stop but continue with what we have
-				}
-				allMatchIds.push(...matchIdsResponse.data);
-				if (matchIdsResponse.data.length < count) {
-					break; // Last page
-				}
-				start += count;
-			}
+				const newMatchIds: string[] = [];
+				let start = 0;
+				const count = 100;
+				let foundOverlap = false;
 
-			const uniqueMatchIds = [...new Set(allMatchIds)];
-			setFetchProgress({
-				total: uniqueMatchIds.length,
-				fetched: 0,
-			});
-
-			// 3. Process matches in batches
-			const BATCH_SIZE = 10;
-			const BATCH_DELAY = 1200; // Riot rate limit: 100 requests per 2 minutes
-			const newHistory: (MatchResult & { isNewMatch: boolean })[] = [];
-
-			for (let i = 0; i < uniqueMatchIds.length; i += BATCH_SIZE) {
-				const batch = uniqueMatchIds.slice(i, i + BATCH_SIZE);
-				const batchPromises = batch.map(async (matchId) => {
-					const cachedMatch = getCachedMatch(matchId);
-					if (cachedMatch) {
-						return {
-							...getPlayerMatchResult(
-								cachedMatch,
-								account.data.puuid
-							),
-							matchId,
-							isNewMatch: false,
-						};
-					}
-					const matchInfo = await getMatchInfo(matchId, region);
-					if ("error" in matchInfo || !matchInfo.data) return null;
-					cacheMatch(matchId, matchInfo.data);
-					return {
-						...getPlayerMatchResult(
-							matchInfo.data,
-							account.data.puuid
-						),
-						matchId,
-						isNewMatch: true,
-					};
-				});
-
-				const batchResults = await Promise.all(batchPromises);
-				const validResults = batchResults.filter(
-					(r): r is MatchResult & { isNewMatch: boolean } =>
-						Boolean(r && r.champion && r.placement)
-				);
-				newHistory.push(...validResults);
-
-				setFetchProgress((prev) => ({
-					total: uniqueMatchIds.length,
-					fetched: prev ? prev.fetched + batch.length : batch.length,
-				}));
-
-				if (i + BATCH_SIZE < uniqueMatchIds.length) {
-					await new Promise((resolve) =>
-						setTimeout(resolve, BATCH_DELAY)
+				while (true) {
+					const matchIdsResponse = await getMatchIds(
+						puuid,
+						region,
+						start,
+						count
 					);
+					if ("error" in matchIdsResponse || !matchIdsResponse.data) {
+						setError("Failed to fetch new matches.");
+						break;
+					}
+
+					const pageIds = matchIdsResponse.data;
+					const newIdsOnPage: string[] = [];
+					for (const id of pageIds) {
+						if (cachedMatchIdSet.has(id)) {
+							foundOverlap = true;
+							break;
+						}
+						newIdsOnPage.push(id);
+					}
+					newMatchIds.push(...newIdsOnPage);
+
+					if (foundOverlap || pageIds.length < count) {
+						break;
+					}
+					start += count;
 				}
-			}
 
-			// 4. Update state and storage
-			const sortedHistory = newHistory.sort((a, b) =>
-				b.matchId.localeCompare(a.matchId)
-			);
-			setMatchHistoryState(sortedHistory);
-			setMatchHistory(sortedHistory);
+				if (newMatchIds.length > 0) {
+					const processedNewMatches = await processMatches(
+						newMatchIds,
+						puuid,
+						region
+					);
+					const combinedHistory = [
+						...processedNewMatches,
+						...cachedHistory,
+					];
+					const sortedHistory = combinedHistory.sort((a, b) =>
+						b.matchId.localeCompare(a.matchId)
+					);
+					setMatchHistoryState(sortedHistory);
+					setMatchHistory(sortedHistory);
 
-			const newMatches = newHistory.filter((result) => result.isNewMatch);
-			if (newMatches.length > 0) {
-				const currentProgress = getArenaProgress();
-				const played = newMatches.map((m) => m.champion);
-				const firstPlace = newMatches
-					.filter((m) => m.placement === 1)
-					.map((m) => m.champion);
+					const newMatchesForProgress = processedNewMatches.filter(
+						(r) => r.isNewMatch
+					);
+					updateArenaProgress(newMatchesForProgress);
+				}
+			} else {
+				// Full 2-year history fetch
+				const twoYearsAgo = new Date();
+				twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+				const now = new Date();
+				const timeIntervals: { startTime: number; endTime: number }[] =
+					[];
+				let current = new Date(twoYearsAgo);
 
-				const newProgress: ArenaProgress = {
-					playedChampions: [
-						...new Set([
-							...(currentProgress.playedChampions || []),
-							...played,
-						]),
-					],
-					firstPlaceChampions: [
-						...new Set([
-							...(currentProgress.firstPlaceChampions || []),
-							...firstPlace,
-						]),
-					],
-				};
-				setArenaProgress(newProgress);
+				while (current < now) {
+					const start = new Date(current);
+					const end = new Date(current);
+					end.setMonth(end.getMonth() + 1);
+					const effectiveEnd = end > now ? now : end;
+					timeIntervals.push({
+						startTime: Math.floor(start.getTime() / 1000),
+						endTime: Math.floor(effectiveEnd.getTime() / 1000),
+					});
+					current = new Date(end);
+				}
+
+				const allMatchIds = new Set<string>();
+				for (const interval of timeIntervals.reverse()) {
+					let start = 0;
+					const count = 100;
+					while (true) {
+						const matchIdsResponse = await getMatchIds(
+							puuid,
+							region,
+							start,
+							count,
+							interval.startTime,
+							interval.endTime
+						);
+						if (
+							"error" in matchIdsResponse ||
+							!matchIdsResponse.data
+						) {
+							console.error(
+								`Failed to fetch matches for a time interval.`
+							);
+							break;
+						}
+						matchIdsResponse.data.forEach((id) =>
+							allMatchIds.add(id)
+						);
+						if (matchIdsResponse.data.length < count) {
+							break;
+						}
+						start += count;
+					}
+				}
+
+				const uniqueMatchIds = Array.from(allMatchIds);
+				const newHistory = await processMatches(
+					uniqueMatchIds,
+					puuid,
+					region
+				);
+				const sortedHistory = newHistory.sort((a, b) =>
+					b.matchId.localeCompare(a.matchId)
+				);
+				setMatchHistoryState(sortedHistory);
+				setMatchHistory(sortedHistory);
+
+				const newMatchesForProgress = newHistory.filter(
+					(r) => r.isNewMatch
+				);
+				updateArenaProgress(newMatchesForProgress);
 			}
 		} catch (error) {
 			console.error("Failed to update match history:", error);
